@@ -1,0 +1,14 @@
+# 1. Create a virtual environment named '.venv'
+python3 -m venv .venv
+
+# 2. Activate it
+# For bash/zsh:
+source .venv/bin/activate
+# (For fish shell: source .venv/bin/activate.fish)
+
+# 3. Upgrade pip and install Pygame (or pygame-ce)
+pip install --upgrade pip
+pip install pygame-ce
+
+# 4. Save your dependencies to commit to GitHub
+pip freeze > requirements.txt
