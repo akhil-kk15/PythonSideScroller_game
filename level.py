@@ -456,9 +456,9 @@ class Level:
         self.level_number = level_number
         self.assets = assets
         self.level_name = (
-            "Level 1: We can name the level something"
+            "Level 1: Bright Forest"
             if level_number == 1
-            else "Level 2: Goblin Stronghold"
+            else "Level 2: Dark Forest"
         )
         self.width = 56 * TILE_SIZE  # 3584 px wide
         self.height = 720
