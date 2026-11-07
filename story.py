@@ -1,23 +1,22 @@
 # Story scenes of the game "The Stolen Crown".
 #
-# A story scene is made of pages. Every page shows a small part of a real
-# level (same tiles and background as in the game) with a few animated
-# figures. This part is zoomed in 2x with sharp pixels, like a camera zoom
-# in a cutscene. The text is shown in a panel at the top of the screen.
+# Simple and dark: every page shows a dark night sky with twinkling stars,
+# a warm light in the middle, one big main figure (plus a few small ones)
+# and some lines of text below it.
 #
-# FloatingFigure -> a MenuCharacter that moves up and down (for items like the key)
+# FloatingFigure -> a MenuCharacter that moves up and down (for items like the crown)
 # StoryPage      -> one picture with text
 # StoryScreen    -> a list of pages; Enter/Click goes to the next page, Esc skips all
 
 import math
+import random
 import pygame
 
-from level import Level, TILE_SIZE
-from ui import Button, MenuCharacter, draw_text_with_shadow, PANEL_COLOR, HIGHLIGHT_COLOR, TEXT_COLOR, HINT_COLOR
+from ui import Button, MenuCharacter, draw_text_with_shadow, HIGHLIGHT_COLOR, TEXT_COLOR, HINT_COLOR
 
-GROUND = 10 * TILE_SIZE  # y of the normal ground in both levels (640)
-ZOOM = 2
-VIEW_TOP = 320           # top of the zoomed part (so the ground is near the bottom)
+FEET_Y = 440                     # where the figures stand
+BACKGROUND_COLOR = (14, 16, 26)
+GLOW_COLOR = (255, 200, 90)
 
 # The Golden Crown as pixel art, so it looks like the other sprites.
 # Every letter is one pixel, "." means transparent.
@@ -43,7 +42,7 @@ CROWN_COLORS = {
 }
 
 
-def make_crown(pixel_size=3):
+def make_crown(pixel_size):
     # Draw the crown pixel by pixel from CROWN_PIXELS.
     width = len(CROWN_PIXELS[0]) * pixel_size
     height = len(CROWN_PIXELS) * pixel_size
@@ -57,7 +56,7 @@ def make_crown(pixel_size=3):
 
 
 def breathing(picture):
-    # Two frames for a figure that stands still: normal and 2 pixels taller.
+    # Two frames for a figure that stands still: normal and a little taller.
     # Played one after another, the figure looks like it is breathing.
     width, height = picture.get_size()
     return [picture, pygame.transform.scale(picture, (width, height + 2))]
@@ -69,34 +68,54 @@ class FloatingFigure(MenuCharacter):
 
     def draw(self, surface, feet_position):
         x, y = feet_position
-        offset = math.sin(pygame.time.get_ticks() / 300) * 4
+        offset = math.sin(pygame.time.get_ticks() / 300) * 8
         super().draw(surface, (x, y + offset))
 
 
 class StoryPage:
-    # One page of a story: a part of a level, figures and text.
+    # One page of a story: figures and text.
 
-    def __init__(self, level, camera_x, focus_x, lines, figures, title=None):
-        self.level = level        # a Level that is drawn as the picture
-        self.camera_x = camera_x  # which part of the level is drawn
-        self.focus_x = focus_x    # x in the middle of the zoomed part
-        self.lines = lines        # list of strings (at most 3)
-        self.figures = figures    # list of (figure, (x, feet y)) before zooming
-        self.title = title        # big text at the top, or None
+    def __init__(self, lines, figures, title=None):
+        self.lines = lines      # list of strings (at most 3)
+        self.figures = figures  # list of (figure, (x, feet y))
+        self.title = title      # big text at the top, or None
+
+
+def make_background(screen_size):
+    # Dark background with a warm light in the middle and a light spot on the floor.
+    # It is drawn once and then reused for every page.
+    width, height = screen_size
+    background = pygame.Surface(screen_size)
+    background.fill(BACKGROUND_COLOR)
+
+    glow = pygame.Surface(screen_size, pygame.SRCALPHA)
+    max_radius = 340
+    for radius in range(max_radius, 0, -4):
+        # Circles from the outside to the inside. Every smaller circle is a bit less
+        # see-through, so the light is strongest in the middle and fades out smoothly.
+        alpha = int(45 * (1 - radius / max_radius))
+        pygame.draw.circle(glow, (*GLOW_COLOR, alpha), (width // 2, FEET_Y - 110), radius)
+    pygame.draw.ellipse(glow, (*GLOW_COLOR, 35), (width // 2 - 260, FEET_Y - 18, 520, 36))
+    background.blit(glow, (0, 0))
+    return background
 
 
 class StoryScreen:
     # Shows the pages one after another.
 
-    def __init__(self, pages, screen_size, button_icon=None):
+    def __init__(self, pages, screen_size, background, button_icon=None):
         self.pages = pages
         self.index = 0
-        screen_w, screen_h = screen_size
-        self.scene = pygame.Surface(screen_size)  # the picture is drawn here first
-        self.view_size = (screen_w // ZOOM, screen_h // ZOOM)
-        self.panel = pygame.Rect(40, 20, screen_w - 80, 200)
-        self.button = Button("Continue", "continue",
-                             (self.panel.right - 190, self.panel.bottom - 45), button_icon)
+        self.background = background
+        width, height = screen_size
+        self.button = Button("Continue", "continue", (width // 2, height - 75), button_icon)
+
+        # Stars: random places, but always the same ones (fixed seed).
+        generator = random.Random(7)
+        self.stars = []
+        for _ in range(70):
+            self.stars.append((generator.randint(0, width), generator.randint(0, FEET_Y - 40),
+                               generator.uniform(0, 6.3)))
 
     def reset(self):
         self.index = 0
@@ -120,135 +139,109 @@ class StoryScreen:
                 return "done"  # skip the whole story
         return None
 
-    def draw_zoomed_scene(self, surface, page, font):
-        # 1. Draw the level and the figures in normal size.
-        page.level.draw(self.scene, page.camera_x, font)
-        for figure, position in page.figures:
-            figure.draw(self.scene, position)
-
-        # 2. Cut out a small part around focus_x ...
-        view_w, view_h = self.view_size
-        left = max(0, min(self.scene.get_width() - view_w, page.focus_x - view_w // 2))
-        view = self.scene.subsurface((left, VIEW_TOP, view_w, view_h))
-
-        # 3. ... and make it 2x bigger. scale() (not smoothscale) keeps the pixels sharp.
-        surface.blit(pygame.transform.scale(view, surface.get_size()), (0, 0))
+    def draw_stars(self, surface):
+        time = pygame.time.get_ticks() / 600
+        for x, y, phase in self.stars:
+            brightness = int(120 + 90 * math.sin(time + phase))  # between 30 and 210
+            surface.fill((brightness, brightness, brightness + 30 if brightness < 225 else 255), (x, y, 2, 2))
 
     def draw(self, surface, font_sm, font_md, font_lg):
         page = self.pages[self.index]
-        self.draw_zoomed_scene(surface, page, font_sm)
+        center_x = surface.get_width() // 2
 
-        # Text panel at the top. Its height fits the title and the lines of this page.
-        title_height = 58 if page.title else 0
-        self.panel.height = max(150, 18 + title_height + len(page.lines) * 30 + 55)
-        self.button.rect.centery = self.panel.bottom - 45
-        pygame.draw.rect(surface, PANEL_COLOR, self.panel, border_radius=14)
-        pygame.draw.rect(surface, HIGHLIGHT_COLOR, self.panel, 3, border_radius=14)
-        text_y = self.panel.top + 18
+        surface.blit(self.background, (0, 0))
+        self.draw_stars(surface)
+
+        for figure, position in page.figures:
+            figure.draw(surface, position)
+
         if page.title:
-            draw_text_with_shadow(surface, font_lg, page.title, HIGHLIGHT_COLOR, (self.panel.centerx, text_y))
-            text_y += 58
+            draw_text_with_shadow(surface, font_lg, page.title, HIGHLIGHT_COLOR, (center_x, 40))
+
+        text_y = FEET_Y + 45
         for line in page.lines:
             text = font_md.render(line, True, TEXT_COLOR)
-            surface.blit(text, (self.panel.left + 30, text_y))
-            text_y += 30
+            surface.blit(text, text.get_rect(midtop=(center_x, text_y)))
+            text_y += 32
 
         mouse_on_button = self.button.rect.collidepoint(pygame.mouse.get_pos())
         self.button.draw(surface, font_md, mouse_on_button)
         hint = font_sm.render(f"Page {self.index + 1} / {len(self.pages)}     Enter = continue     Esc = skip",
                               True, HINT_COLOR)
-        surface.blit(hint, (self.panel.left + 30, self.panel.bottom - 28))
-
-
-def make_story_level(level_number, assets):
-    # A copy of a level that is only used as a picture: no enemies, items,
-    # chests, levers, crates or decorations, so only the figures of the story are seen.
-    level = Level(level_number, assets)
-    level.enemies = []
-    level.collectibles = []
-    level.chests = []
-    level.levers = []
-    level.destructibles = []
-    level.decorations = []
-    return level
+        surface.blit(hint, hint.get_rect(midtop=(center_x, self.button.rect.bottom + 10)))
 
 
 def create_stories(assets, player_sprites, screen_size, feet_padding, button_icon=None):
-    # All story scenes of the game, by name. Figures use their normal game size.
-    grasslands = make_story_level(1, assets)
-    stronghold = make_story_level(2, assets)
+    # All story scenes of the game, by name.
+    background = make_background(screen_size)
     enemies = assets.enemies
     items = assets.items
-    props = assets.props
+    center_x = screen_size[0] // 2
 
-    def knight():
-        return MenuCharacter(player_sprites["idle"], 20, 1, feet_padding)
+    def knight(scale):
+        return MenuCharacter(player_sprites["idle"], 20, scale, feet_padding)
 
-    def goblin(name, flip=False):
+    def goblin(name, scale, flip=False):
         # Every goblin stands still and breathes (first picture of its sprites).
-        return MenuCharacter(breathing(enemies[name][0]), 30, 1, flip=flip)
+        return MenuCharacter(breathing(enemies[name][0]), 30, scale, flip=flip)
 
-    def crown():
-        return FloatingFigure([make_crown()], 60, 1)
+    def item(name, frame_time, scale):
+        return FloatingFigure(items[name], frame_time, scale)
 
-    def item(name, frame_time):
-        return FloatingFigure(items[name], frame_time, 1)
+    def crown(pixel_size):
+        return FloatingFigure([make_crown(pixel_size)], 60, 1)
 
     intro = StoryScreen([
-        StoryPage(grasslands, 0, 470, [
+        StoryPage([
             "For a hundred years, the Golden Crown kept the kingdom safe and peaceful.",
             "Its light protected every village from the dark creatures beyond the mountains.",
         ], [
-            (MenuCharacter([props["campfire"]], 60, 1), (240, GROUND)),
-            (crown(), (510, 590)),
-            (item("coin", 10), (440, 615)),
-            (item("gem", 14), (580, 615)),
+            (crown(10), (center_x, FEET_Y - 60)),
+            (item("coin", 10, 2), (center_x - 190, FEET_Y - 20)),
+            (item("gem", 14, 2), (center_x + 190, FEET_Y - 20)),
         ], title="THE STOLEN CROWN"),
-        StoryPage(stronghold, 15 * TILE_SIZE, 470, [
+        StoryPage([
             "But one dark night, a band of goblins crept into the castle and stole the crown!",
             "They carried it to their Stronghold, led by the mighty Goblin Brute.",
         ], [
-            (goblin("goblin_warrior_walk"), (360, GROUND)),
-            (goblin("goblin_brute"), (480, GROUND)),
-            (crown(), (480, 545)),
-            (goblin("goblin_archer"), (600, GROUND)),
-            (MenuCharacter(enemies["bat"], 12, 1), (680, 560)),
+            (goblin("goblin_warrior_walk", 2), (center_x - 230, FEET_Y)),
+            (goblin("goblin_archer", 2), (center_x + 230, FEET_Y)),
+            (goblin("goblin_brute", 3), (center_x, FEET_Y)),
+            (crown(4), (center_x, FEET_Y - 275)),
+            (MenuCharacter(enemies["bat"], 12, 2), (center_x + 420, FEET_Y - 200)),
         ]),
-        StoryPage(grasslands, 0, 330, [
+        StoryPage([
             "Young knight Aldric swears to bring the crown back home.",
             "First he must cross the Emerald Grasslands and find the Gold Key",
             "that opens the gate to the cave.",
         ], [
-            (knight(), (120, GROUND)),
-            (item("key", 25), (300, 605)),
-            (MenuCharacter(enemies["slime"], 18, 1), (500, GROUND)),
+            (knight(3), (center_x - 80, FEET_Y)),
+            (item("key", 25, 2), (center_x + 150, FEET_Y - 100)),
         ]),
-    ], screen_size, button_icon)
+    ], screen_size, background, button_icon)
 
     level_2 = StoryScreen([
-        StoryPage(stronghold, 27 * TILE_SIZE, 400, [
+        StoryPage([
             "The cave leads Aldric straight into the Goblin Stronghold.",
             "Archers guard the walls, and the Goblin Brute keeps the key to the treasure room.",
         ], [
-            (knight(), (200, 9 * TILE_SIZE)),
-            (goblin("goblin_archer", flip=True), (480, 9 * TILE_SIZE)),
-            (goblin("goblin_brute", flip=True), (590, 9 * TILE_SIZE)),
-            (item("key", 25), (590, 485)),
+            (knight(2), (center_x - 260, FEET_Y)),
+            (goblin("goblin_archer", 2, flip=True), (center_x + 30, FEET_Y)),
+            (goblin("goblin_brute", 2.5, flip=True), (center_x + 250, FEET_Y)),
+            (item("key", 25, 1.5), (center_x + 250, FEET_Y - 230)),
         ], title="THE GOBLIN STRONGHOLD"),
-    ], screen_size, button_icon)
+    ], screen_size, background, button_icon)
 
     ending = StoryScreen([
-        StoryPage(grasslands, 0, 330, [
+        StoryPage([
             "Deep inside the Stronghold, Aldric finds the Golden Crown.",
             "He brings it home, and the whole kingdom celebrates its new hero!",
         ], [
-            (MenuCharacter([props["campfire"]], 60, 1), (170, GROUND)),
-            (knight(), (300, GROUND)),
-            (crown(), (300, 560)),
-            (MenuCharacter([props["chest_open"]], 60, 1), (420, GROUND)),
-            (item("coin", 10), (480, 600)),
-            (item("gem", 14), (530, 610)),
+            (knight(3), (center_x, FEET_Y)),
+            (crown(5), (center_x, FEET_Y - 230)),
+            (item("coin", 10, 2), (center_x - 200, FEET_Y - 30)),
+            (item("gem", 14, 2), (center_x + 200, FEET_Y - 30)),
         ], title="THE KINGDOM IS SAVED"),
-    ], screen_size, button_icon)
+    ], screen_size, background, button_icon)
 
     return {"intro": intro, "level_2": level_2, "ending": ending}
