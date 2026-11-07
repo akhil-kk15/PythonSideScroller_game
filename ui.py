@@ -152,7 +152,8 @@ class MenuCharacter:
     # It reuses the Animation class from animation.py.
 
     def __init__(self, frames, frame_time, scale, feet_padding=0, flip=False):
-        big_frames = [pygame.transform.smoothscale_by(frame, scale) for frame in frames]
+        # scale_by (not smoothscale_by) keeps the pixels sharp when the figure is made bigger.
+        big_frames = [pygame.transform.scale_by(frame, scale) for frame in frames]
         if flip:
             # Mirror the pictures so the figure looks the other way.
             big_frames = [pygame.transform.flip(frame, True, False) for frame in big_frames]
