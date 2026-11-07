@@ -459,6 +459,7 @@ class Level:
         # Collision and tile collections.
         self.visual_tiles: list[tuple[pygame.Surface, int, int]] = []
         self.ladder_tiles: list[tuple[pygame.Surface, int, int]] = []
+        self.ladder_specs: list[tuple[int, int, int]] = []
         self.solid_rects: list[pygame.Rect] = []
         self.one_way_rects: list[pygame.Rect] = []
         self.ladder_rects: list[pygame.Rect] = []
@@ -487,6 +488,8 @@ class Level:
             self._build_level_1()
         else:
             self._build_level_2()
+
+        self._carve_ladder_openings()
 
     # Level-building helpers.
     def _add_ground_segment(self, start_col: int, end_col: int, row: int = 10, deep_rows: int = 2) -> None:
@@ -535,10 +538,43 @@ class Level:
         for r in range(top_row, top_row + height_rows):
             y = r * TILE_SIZE
             self.ladder_tiles.append((self.assets.tiles["ladder_seg"], x, y))
-        ladder_rect = pygame.Rect(x + 4, top_row * TILE_SIZE - 8, 40, height_rows * TILE_SIZE + 8)
+        ladder_rect = pygame.Rect(x, top_row * TILE_SIZE, 48, height_rows * TILE_SIZE)
         self.ladder_rects.append(ladder_rect)
-        # The ladder top is one-way.
-        self.one_way_rects.append(pygame.Rect(x, top_row * TILE_SIZE, 48, 12))
+        self.ladder_specs.append((col, top_row, height_rows))
+
+    def _carve_ladder_openings(self) -> None:
+        """
+        Carves pass-through shafts in solid elevated platforms wherever a ladder passes
+        through them, replacing the top surface with a one-way platform so the player
+        can climb smoothly up and down through platforms without getting blocked or stuck.
+        """
+        for col, top_row, height_rows in self.ladder_specs:
+            shaft = pygame.Rect(
+                col * TILE_SIZE,
+                top_row * TILE_SIZE,
+                TILE_SIZE,
+                height_rows * TILE_SIZE,
+            )
+            new_solids: list[pygame.Rect] = []
+            for s in self.solid_rects:
+                if not s.colliderect(shaft):
+                    new_solids.append(s)
+                    continue
+                # Split solid rect around the ladder shaft
+                if s.left < shaft.left:
+                    new_solids.append(pygame.Rect(s.left, s.top, shaft.left - s.left, s.height))
+                if s.right > shaft.right:
+                    new_solids.append(pygame.Rect(shaft.right, s.top, s.right - shaft.right, s.height))
+                inter_left = max(s.left, shaft.left)
+                inter_w = min(s.right, shaft.right) - inter_left
+                if inter_w > 0:
+                    if s.top < shaft.top:
+                        new_solids.append(pygame.Rect(inter_left, s.top, inter_w, shaft.top - s.top))
+                    if s.bottom > shaft.bottom:
+                        new_solids.append(pygame.Rect(inter_left, shaft.bottom, inter_w, s.bottom - shaft.bottom))
+            self.solid_rects = new_solids
+            # Full tile-width one-way platform across the top of the ladder opening
+            self.one_way_rects.append(pygame.Rect(col * TILE_SIZE, top_row * TILE_SIZE, TILE_SIZE, 14))
 
     def _add_spikes(self, start_col: int, count: int, row: int = 10) -> None:
         """Adds spike-topped blocks along a pit floor."""
@@ -687,7 +723,7 @@ class Level:
             Enemy(8 * TILE_SIZE, 10 * TILE_SIZE, "slime", 6 * TILE_SIZE, 13 * TILE_SIZE, self.assets)
         )
         self.enemies.append(
-            Enemy(7 * TILE_SIZE, 7 * TILE_SIZE, "slime", 5 * TILE_SIZE, 9 * TILE_SIZE, self.assets)
+            Enemy(7 * TILE_SIZE, 7 * TILE_SIZE, "slime", 6 * TILE_SIZE, 9 * TILE_SIZE, self.assets)
         )
         self.enemies.append(
             Enemy(15 * TILE_SIZE, 7 * TILE_SIZE, "bat", 13 * TILE_SIZE, 19 * TILE_SIZE, self.assets)
@@ -696,7 +732,7 @@ class Level:
             Enemy(21 * TILE_SIZE, 9 * TILE_SIZE, "goblin_warrior", 18 * TILE_SIZE, 25 * TILE_SIZE, self.assets)
         )
         self.enemies.append(
-            Enemy(31 * TILE_SIZE, 6 * TILE_SIZE, "goblin_warrior", 29 * TILE_SIZE, 35 * TILE_SIZE, self.assets)
+            Enemy(32 * TILE_SIZE, 6 * TILE_SIZE, "goblin_warrior", 31 * TILE_SIZE, 34 * TILE_SIZE, self.assets)
         )
         self.enemies.append(
             Enemy(32 * TILE_SIZE, 10 * TILE_SIZE, "slime", 29 * TILE_SIZE, 37 * TILE_SIZE, self.assets)
@@ -735,9 +771,9 @@ class Level:
         self._add_platform(4, 4, row=7)
         self._add_ladder(4, top_row=7, height_rows=3)
 
-        self._add_platform(16, 4, row=7)
+        self._add_platform(16, 6, row=7)
         self._add_ladder(16, top_row=7, height_rows=3)
-        self._add_platform(21, 4, row=5)
+        self._add_platform(20, 5, row=5)
         self._add_ladder(20, top_row=5, height_rows=2)
 
         # Fortress battlements.

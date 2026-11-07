@@ -1,28 +1,88 @@
 # PythonSideScroller_game
 
-This is a group project where we are making a Python side-scroller game.
+A Python/Pygame side-scroller game with two levels, platforming, combat,
+collectibles, ladders, and enemies.
 
-## Running the Game
+## Requirements
 
-Activate the virtual environment and run `main.py` (or `player.py`):
+- Python 3.10 or newer
+- A desktop environment that can open a Pygame window
+- `pip`
+
+## Clone and install
+
+Clone the repository and enter its folder:
 
 ```bash
-.venv/bin/python main.py
+git clone https://github.com/akhil-kk15/PythonSideScroller_game.git
+cd PythonSideScroller_game
 ```
 
-To re-slice the combined sprite sheets (`assets/base.jpg`, `assets/knight.jpg`, `assets/goblin.jpg`) into individual transparent PNGs under `assets/sliced/`:
+Create and activate a virtual environment.
+
+### Linux or macOS
 
 ```bash
-.venv/bin/python slice_assets.py
+python3 -m venv .venv
+source .venv/bin/activate
 ```
+
+### Windows PowerShell
+
+```powershell
+py -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+Install the project dependencies:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+## Prepare the game assets
+
+The combined sprite sheets are included in `assets/`. Generate the individual
+sprites used by the game with:
+
+```bash
+python slice_assets.py
+```
+
+This creates the `assets/sliced/` directory. Run the command again whenever
+the source sprite sheets change.
+
+## Play the game
+
+Start the game with:
+
+```bash
+python main.py
+```
+
+If the virtual environment is not activated, use `.venv/bin/python main.py` on
+Linux/macOS or `.venv\Scripts\python.exe main.py` on Windows.
 
 ## Controls
 
-- **Move Left / Right**: `A` / `D` or `Left` / `Right` Arrow keys
-- **Jump**: `Space`, `W`, or `Up` Arrow (hold for higher jump; `S` + `Space` drops through wooden bridges)
-- **Climb Ladders**: `W` / `S` or `Up` / `Down` Arrow when touching a ladder
-- **Sword Attack**: `J`, `Z`, `X`, `F`, `K`, or `Left Mouse Click` (can also stomp enemies from above!)
-- **Switch Levels**: `1` (Level 1: Emerald Grasslands) or `2` (Level 2: Goblin Stronghold)
-- **Restart**: `R` or `Enter`
-- **Quit**: `Esc`
+- **Move left/right:** `A` / `D` or the left/right arrow keys
+- **Jump:** `Space`, `W`, or the up arrow
+- **Drop through bridges:** hold `S` or down and press `Space`
+- **Climb ladders:** `W` / `S` or the up/down arrow keys while touching a ladder
+- **Attack:** `J`, `Z`, `X`, `F`, `K`, or left mouse click
+- **Switch levels:** `1` for Emerald Grasslands, `2` for Goblin Stronghold
+- **Restart:** `R` or `Enter`
+- **Quit:** `Esc`
 
+## Test the project
+
+There is no automated test suite yet. You can still check that all Python
+files compile successfully:
+
+```bash
+python -m compileall -q *.py
+```
+
+Then launch the game and verify movement, jumping, combat, collectibles,
+level switching, restarting, and quitting.

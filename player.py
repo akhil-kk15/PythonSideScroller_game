@@ -26,6 +26,8 @@ class Player:
         self.facing_right = True
         self.on_ground = False
         self.on_ladder = False
+        self.active_ladder: pygame.Rect | None = None
+        self.ladder_cooldown = 0
         self.touching_ladder = False
         self.coyote_timer = 0
         self.jump_buffer_timer = 0
@@ -72,6 +74,8 @@ class Player:
         self.vel_y = 0.0
         self.on_ground = False
         self.on_ladder = False
+        self.active_ladder = None
+        self.ladder_cooldown = 0
         self.attacking = False
         self.attack_timer = 0
         self.hp = self.max_hp
@@ -81,6 +85,28 @@ class Player:
     def trigger_jump(self) -> None:
         """Queues a jump press (with jump buffering)."""
         self.jump_buffer_timer = 8
+
+    def find_climbable_ladder_up(self, ladder_rects: list[pygame.Rect]) -> pygame.Rect | None:
+        """Returns a ladder the player can climb upward from their current position, or None."""
+        for l_rect in ladder_rects:
+            if (
+                abs(self.rect.centerx - l_rect.centerx) <= 28
+                and self.rect.bottom > l_rect.top + 2
+                and self.rect.top < l_rect.bottom
+            ):
+                return l_rect
+        return None
+
+    def find_climbable_ladder_down(self, ladder_rects: list[pygame.Rect]) -> pygame.Rect | None:
+        """Returns a ladder the player can climb downward (including from on top of it), or None."""
+        for l_rect in ladder_rects:
+            if (
+                abs(self.rect.centerx - l_rect.centerx) <= 28
+                and self.rect.bottom >= l_rect.top - 4
+                and self.rect.bottom < l_rect.bottom - 2
+            ):
+                return l_rect
+        return None
 
     def trigger_attack(self) -> bool:
         """Starts a sword slash or air strike if cooldown allows."""
@@ -152,6 +178,8 @@ class Player:
             self.invuln_timer -= 1
         if self.attack_cooldown > 0:
             self.attack_cooldown -= 1
+        if self.ladder_cooldown > 0:
+            self.ladder_cooldown -= 1
         if self.attacking:
             self.attack_timer -= 1
             if self.attack_timer <= 0:
@@ -163,25 +191,67 @@ class Player:
         move_up = keys[pygame.K_UP] or keys[pygame.K_w]
         move_down = keys[pygame.K_DOWN] or keys[pygame.K_s]
 
-        # Check for a ladder.
-        self.touching_ladder = any(self.rect.colliderect(l_rect) for l_rect in ladder_rects)
-        if not self.touching_ladder:
-            self.on_ladder = False
-        elif (move_up or move_down) and not self.attacking:
-            # Start climbing when a direction is pressed.
+        # Check for a ladder and handle grabbing / staying on it.
+        up_ladder = self.find_climbable_ladder_up(ladder_rects)
+        down_ladder = self.find_climbable_ladder_down(ladder_rects)
+        self.touching_ladder = (up_ladder is not None) or (down_ladder is not None)
+
+        if self.on_ladder:
+            # Verify we are still horizontally & vertically within an active ladder
+            still_on = None
             for l_rect in ladder_rects:
-                if self.rect.colliderect(l_rect):
-                    self.on_ladder = True
-                    self.vel_y = 0.0
+                if (
+                    abs(self.rect.centerx - l_rect.centerx) <= 28
+                    and self.rect.bottom >= l_rect.top - 2
+                    and self.rect.top < l_rect.bottom
+                ):
+                    still_on = l_rect
                     break
+            if still_on is None:
+                self.on_ladder = False
+                self.active_ladder = None
+            else:
+                self.active_ladder = still_on
+        elif self.ladder_cooldown == 0:
+            target_ladder = None
+            if move_up and up_ladder is not None:
+                target_ladder = up_ladder
+            elif move_down and down_ladder is not None:
+                target_ladder = down_ladder
+
+            if target_ladder is not None:
+                self.on_ladder = True
+                self.active_ladder = target_ladder
+                self.vel_x = 0.0
+                self.vel_y = 0.0
+                self.jump_buffer_timer = 0
+                # Ensure the player fits cleanly inside the 64px carved ladder shaft
+                max_offset = 11
+                dx = self.rect.centerx - target_ladder.centerx
+                if abs(dx) > max_offset:
+                    self.rect.centerx = target_ladder.centerx + (max_offset if dx > 0 else -max_offset)
 
         # Update horizontal velocity.
-        if move_left and not move_right:
-            self.vel_x = -self.speed
+        if self.on_ladder and self.active_ladder is not None and (move_up or move_down):
+            # Keep aligned on the ladder rungs while actively climbing up/down so holding
+            # A/D + W smoothly climbs to the top platform and then runs onto it without
+            # accidentally sliding off mid-climb.
+            self.vel_x = 0.0
+            if move_left and not move_right and not self.attacking:
+                self.facing_right = False
+            elif move_right and not move_left and not self.attacking:
+                self.facing_right = True
+            dx = self.active_ladder.centerx - self.rect.centerx
+            if abs(dx) <= 4:
+                self.rect.centerx = self.active_ladder.centerx
+            else:
+                self.rect.centerx += 4 if dx > 0 else -4
+        elif move_left and not move_right:
+            self.vel_x = -self.speed * (0.65 if self.on_ladder else 1.0)
             if not self.attacking:
                 self.facing_right = False
         elif move_right and not move_left:
-            self.vel_x = self.speed
+            self.vel_x = self.speed * (0.65 if self.on_ladder else 1.0)
             if not self.attacking:
                 self.facing_right = True
         else:
@@ -215,13 +285,18 @@ class Player:
                         self.vel_y = self.jump_power
                         self.on_ground = False
                         self.on_ladder = False
+                        self.active_ladder = None
                         self.coyote_timer = 0
                         self.jump_buffer_timer = 0
                         events["jumped"] = True
                 else:
+                    was_climbing = self.on_ladder
                     self.vel_y = self.jump_power
                     self.on_ground = False
                     self.on_ladder = False
+                    self.active_ladder = None
+                    if was_climbing:
+                        self.ladder_cooldown = 14
                     self.coyote_timer = 0
                     self.jump_buffer_timer = 0
                     events["jumped"] = True
@@ -233,9 +308,9 @@ class Player:
 
         # Apply ladder movement or gravity.
         if self.on_ladder:
-            if move_up:
+            if move_up and not move_down:
                 self.vel_y = -self.climb_speed
-            elif move_down:
+            elif move_down and not move_up:
                 self.vel_y = self.climb_speed
             else:
                 self.vel_y = 0.0
@@ -272,6 +347,21 @@ class Player:
         self.rect.y += int(round(self.vel_y))
         self.on_ground = False
 
+        # Clean top/bottom emergence when climbing a ladder
+        if self.on_ladder and self.active_ladder is not None:
+            if self.vel_y < 0 and self.rect.bottom <= self.active_ladder.top:
+                self.rect.bottom = self.active_ladder.top
+                self.vel_y = 0.0
+                self.on_ladder = False
+                self.active_ladder = None
+                self.on_ground = True
+            elif self.vel_y > 0 and self.rect.bottom >= self.active_ladder.bottom:
+                self.rect.bottom = self.active_ladder.bottom
+                self.vel_y = 0.0
+                self.on_ladder = False
+                self.active_ladder = None
+                self.on_ground = True
+
         for tile in solid_rects:
             if self.rect.colliderect(tile):
                 if self.vel_y >= 0:
@@ -279,12 +369,13 @@ class Player:
                     self.vel_y = 0.0
                     self.on_ground = True
                     self.on_ladder = False
+                    self.active_ladder = None
                 elif self.vel_y < 0:
                     self.rect.top = tile.bottom
                     self.vel_y = 0.0
 
         # Handle one-way platforms.
-        if self.vel_y >= 0 and not (self.on_ladder and move_down):
+        if self.vel_y >= 0 and not self.on_ladder:
             for ow in one_way_rects:
                 if self.rect.colliderect(ow) and prev_bottom <= ow.top + 10:
                     self.rect.bottom = ow.top

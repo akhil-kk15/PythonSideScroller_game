@@ -379,9 +379,13 @@ def run_game(max_frames: int | None = None) -> None:
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     running = False
-                elif event.key in (pygame.K_SPACE, pygame.K_w, pygame.K_UP):
+                elif event.key == pygame.K_SPACE:
                     if game_state == "playing":
                         player.trigger_jump()
+                elif event.key in (pygame.K_w, pygame.K_UP):
+                    if game_state == "playing":
+                        if not player.on_ladder and player.find_climbable_ladder_up(level.ladder_rects) is None:
+                            player.trigger_jump()
                 elif event.key in (pygame.K_j, pygame.K_z, pygame.K_x, pygame.K_f, pygame.K_k):
                     if game_state == "playing":
                         player.trigger_attack()
