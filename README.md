@@ -72,8 +72,11 @@ with the mouse or with `W` / `S` (or the arrow keys) and `Enter`.
 - **Pause menu:** `Esc` or `P` during the game. It offers Resume, Restart
   Level, Controls, Main Menu, and Quit Game. `Esc` closes it again. The game
   also pauses automatically when the window loses focus.
-- **Game over / victory:** shows the final score with Play Again, Main Menu,
-  and Quit.
+- **Game over / victory:** shows the final score and the top 5 highscores with
+  Play Again, Main Menu, and Quit.
+- **Highscores:** every finished game is saved in `highscores.txt` next to
+  `main.py` (one line per entry: `score;level;date`). The main menu shows the
+  best score. Delete the file to reset the list.
 
 ## Controls
 
