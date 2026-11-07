@@ -42,32 +42,6 @@ CROWN_COLORS = {
 }
 
 
-# The empty stone pedestal where the crown used to lie (red cushion on top).
-PEDESTAL_PIXELS = [
-    "...OOOOOO...",
-    "..ORRRRRRO..",
-    ".ORRrRRrRRO.",
-    ".OOOOOOOOOO.",
-    "OGGGGGGGGGGO",
-    "OOOOOOOOOOOO",
-    "..OLGGGGGO..",
-    "..OLGGGGGO..",
-    "..OLGGGGGO..",
-    "..OLGGGGGO..",
-    "..OLGGGGGO..",
-    ".OOOOOOOOOO.",
-    "OLGGGGGGGGGO",
-    "OOOOOOOOOOOO",
-]
-PEDESTAL_COLORS = {
-    "O": (35, 35, 50),     # dark outline
-    "G": (120, 120, 140),  # stone
-    "L": (170, 170, 190),  # light side of the stone
-    "R": (165, 35, 50),    # red cushion
-    "r": (210, 70, 80),    # light on the cushion
-}
-
-
 def make_pixel_art(pixels, colors, pixel_size):
     # Draw a picture pixel by pixel from a list of strings.
     width = len(pixels[0]) * pixel_size
@@ -85,14 +59,6 @@ def make_crown(pixel_size):
     return make_pixel_art(CROWN_PIXELS, CROWN_COLORS, pixel_size)
 
 
-def make_speed_lines():
-    # A few white lines that show that something runs away fast.
-    lines = pygame.Surface((110, 70), pygame.SRCALPHA)
-    for y, length in ((8, 80), (34, 110), (60, 70)):
-        pygame.draw.line(lines, (230, 230, 255, 140), (110 - length, y), (110, y), 4)
-    return lines
-
-
 def breathing(picture):
     # Two frames for a figure that stands still: normal and a little taller.
     # Played one after another, the figure looks like it is breathing.
@@ -108,6 +74,47 @@ class FloatingFigure(MenuCharacter):
         x, y = feet_position
         offset = math.sin(pygame.time.get_ticks() / 300) * 8
         super().draw(surface, (x, y + offset))
+
+
+class RunningFigure(MenuCharacter):
+    # A figure that hops up and down quickly, like when running.
+    # It inherits everything from MenuCharacter and only overrides draw().
+
+    def draw(self, surface, feet_position):
+        x, y = feet_position
+        hop = abs(math.sin(pygame.time.get_ticks() / 110)) * 10
+        super().draw(surface, (x, y - hop))
+
+
+class RunningTrail:
+    # Wind lines and dust clouds that fly backwards behind a running figure
+    # and fade out. It has the same draw(surface, position) as the figures,
+    # so it can be put into the same list.
+
+    def __init__(self, dust_pictures):
+        self.dust = [pygame.transform.scale_by(picture, 1.5) for picture in dust_pictures]
+
+    def draw(self, surface, position):
+        x, y = position  # right behind the runner, at the height of the feet
+        time = pygame.time.get_ticks() / 450
+
+        # Three wind lines. "progress" goes from 0 to 1 again and again:
+        # at 0 a line starts at the runner, at 1 it is far behind and invisible.
+        for number in range(3):
+            progress = (time + number / 3) % 1
+            strength = 1 - progress
+            color = [int(dark + (light - dark) * strength)
+                     for dark, light in zip(BACKGROUND_COLOR, (225, 225, 250))]
+            right = x - progress * 170
+            line_y = y - 70 - number * 35
+            pygame.draw.line(surface, color, (right - 25 - 50 * strength, line_y), (right, line_y), 4)
+
+        # Two dust clouds at the feet, also flying backwards and fading out.
+        for number in range(len(self.dust)):
+            progress = (time * 1.4 + number / len(self.dust)) % 1
+            cloud = self.dust[number].copy()
+            cloud.set_alpha(int(230 * (1 - progress)))
+            surface.blit(cloud, cloud.get_rect(midbottom=(x - progress * 120, y)))
 
 
 class StoryPage:
@@ -242,12 +249,11 @@ def create_stories(assets, player_sprites, screen_size, feet_padding, button_ico
             "But one dark night, a band of goblins crept into the castle and stole the crown!",
             "They carried it to their Stronghold, led by the mighty Goblin Brute.",
         ], [
-            # The pedestal is empty: a goblin runs away with the crown under its arm.
-            (MenuCharacter([make_pixel_art(PEDESTAL_PIXELS, PEDESTAL_COLORS, 9)], 60, 1), (center_x - 240, FEET_Y)),
-            (MenuCharacter([make_speed_lines()], 60, 1), (center_x - 20, FEET_Y - 50)),
-            # Goblin (running pose) and crown bounce up and down together like running.
-            (FloatingFigure([enemies["goblin_warrior_walk"][2]], 60, 3), (center_x + 130, FEET_Y - 8)),
-            (FloatingFigure([make_crown(4)], 60, 1), (center_x + 95, FEET_Y - 78)),
+            # A goblin runs away with the crown under its arm. Goblin and crown hop
+            # together, wind lines and dust fly backwards behind them.
+            (RunningTrail([assets.vfx["dust_1"], assets.vfx["dust_2"]]), (center_x - 30, FEET_Y)),
+            (RunningFigure([enemies["goblin_warrior_walk"][2]], 60, 3), (center_x + 50, FEET_Y)),
+            (RunningFigure([make_crown(4)], 60, 1), (center_x + 15, FEET_Y - 70)),
         ]),
         StoryPage([
             "Young knight Aldric swears to bring the crown back home.",
