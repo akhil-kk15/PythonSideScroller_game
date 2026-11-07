@@ -191,7 +191,7 @@ def create_menus(screen_size, icons=None):
                 ("Quit", "quit", "heart_empty"),
             ],
             screen_size,
-            lines=["Find the Gold Key and reach the Cave Exit!"],
+            lines=["Find the Gold Key and reach the Cave Exit!", ""],  # 2nd line: best score
             icons=icons,
             title_size=60,
             overlay_alpha=120,
@@ -233,7 +233,7 @@ def create_menus(screen_size, icons=None):
                 ("Quit", "quit", "heart_empty"),
             ],
             screen_size,
-            lines=[""],  # filled with the final score before drawing
+            lines=[""] * 8,  # filled with the score and the highscores (see main.py)
             icons=icons,
             title_color=(245, 85, 85),
         ),
@@ -245,7 +245,7 @@ def create_menus(screen_size, icons=None):
                 ("Quit", "quit", "heart_empty"),
             ],
             screen_size,
-            lines=[""],  # filled with the final score before drawing
+            lines=[""] * 8,  # filled with the score and the highscores (see main.py)
             icons=icons,
         ),
     }
