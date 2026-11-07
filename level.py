@@ -458,7 +458,7 @@ class Level:
         self.level_name = (
             "Level 1: Emerald Grasslands"
             if level_number == 1
-            else "Level 2: Goblin Stronghold"
+            else "Level 2: Dark Forest"
         )
         self.width = 56 * TILE_SIZE  # 3584 px wide
         self.height = 720
