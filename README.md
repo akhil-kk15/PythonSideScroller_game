@@ -64,6 +64,18 @@ python main.py
 If the virtual environment is not activated, use `.venv/bin/python main.py` on
 Linux/macOS or `.venv\Scripts\python.exe main.py` on Windows.
 
+## Story: The Stolen Crown
+
+Goblins have stolen the Golden Crown of the kingdom and carried it to their
+Stronghold. The young knight Aldric sets out to bring it back: first through
+the Emerald Grasslands (level 1), where he needs the Gold Key for the cave
+gate, then into the Goblin Stronghold (level 2), guarded by archers and the
+Goblin Brute.
+
+Short illustrated story scenes are shown before level 1, before level 2 and
+after the last level (`story.py`). `Enter` or the Continue button goes to the
+next page, `Esc` skips the story.
+
 ## Menus
 
 The game starts in the main menu (Start Game, Controls, Quit). All menus work
