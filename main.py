@@ -5,8 +5,9 @@ import sys
 import pygame
 
 from slice_assets import slice_all_assets
-from player import Player, load_player_sprites
+from player import FEET_PADDING, Player, load_player_sprites
 from level import AssetLibrary, Collectible, Level, VFXParticle
+from ui import MenuCharacter, create_menus, load_icons
 
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
@@ -76,14 +77,14 @@ def draw_hud(
     surface.blit(score_txt, (SCREEN_WIDTH - 210, 16))
 
     # Controls.
-    ctrl_bg = pygame.Surface((650, 26), pygame.SRCALPHA)
-    ctrl_bg.fill((15, 18, 26, 165))
-    surface.blit(ctrl_bg, (10, SCREEN_HEIGHT - 32))
     ctrl_txt = font_sm.render(
-        "Move: A/D or Arrows | Jump: Space/W | Climb: W/S | Attack: J/Z/Click | Level: 1/2 | Restart: R",
+        "Move: A/D or Arrows | Jump: Space/W | Climb: W/S | Attack: J/Z/Click | Restart: R | Pause: Esc/P",
         True,
         (215, 225, 240),
     )
+    ctrl_bg = pygame.Surface((ctrl_txt.get_width() + 16, 26), pygame.SRCALPHA)
+    ctrl_bg.fill((15, 18, 26, 165))
+    surface.blit(ctrl_bg, (10, SCREEN_HEIGHT - 32))
     surface.blit(ctrl_txt, (18, SCREEN_HEIGHT - 27))
 
     # Banner notification.
@@ -98,35 +99,6 @@ def draw_hud(
         surface.blit(banner_surf, (bx, by))
         pygame.draw.rect(surface, (255, 210, 75), (bx, by, bw, bh), 2, border_radius=6)
         surface.blit(b_txt, (bx + (bw - b_txt.get_width()) // 2, by + 9))
-
-
-def draw_overlay_screen(
-    surface: pygame.Surface,
-    title: str,
-    subtitle: str,
-    player: Player,
-    title_color: tuple[int, int, int],
-    font_md: pygame.font.Font,
-    font_lg: pygame.font.Font,
-) -> None:
-    """Draw the game-over or victory screen."""
-    overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-    overlay.fill((12, 15, 24, 195))
-    surface.blit(overlay, (0, 0))
-
-    card = pygame.Rect((SCREEN_WIDTH - 540) // 2, (SCREEN_HEIGHT - 280) // 2, 540, 280)
-    pygame.draw.rect(surface, (28, 34, 52), card, border_radius=14)
-    pygame.draw.rect(surface, title_color, card, 3, border_radius=14)
-
-    t_surf = font_lg.render(title, True, title_color)
-    surface.blit(t_surf, (card.centerx - t_surf.get_width() // 2, card.top + 36))
-
-    stats_str = f"Final Score: {player.score}   |   Coins: {player.coins}   |   Gems: {player.gems}"
-    st_surf = font_md.render(stats_str, True, (235, 242, 255))
-    surface.blit(st_surf, (card.centerx - st_surf.get_width() // 2, card.top + 115))
-
-    sub_surf = font_md.render(subtitle, True, (255, 225, 115))
-    surface.blit(sub_surf, (card.centerx - sub_surf.get_width() // 2, card.top + 185))
 
 
 def handle_level_interactions(
@@ -342,6 +314,21 @@ def handle_level_interactions(
     return None
 
 
+def new_game(assets: AssetLibrary, player_sprites) -> tuple[Level, Player]:
+    """Start a fresh game in level 1 with full lives and no score."""
+    level = Level(1, assets)
+    player = Player(level.spawn_pos[0], level.spawn_pos[1], player_sprites)
+    return level, player
+
+
+def load_level(level_num: int, assets: AssetLibrary, player: Player) -> Level:
+    """Build a level and put the player at its start. Score and lives are kept."""
+    level = Level(level_num, assets)
+    player.has_key = False
+    player.respawn(*level.spawn_pos)
+    return level
+
+
 def run_game(max_frames: int | None = None) -> None:
     """Initializes Pygame, slices sprite sheets if needed, and runs the main game loop."""
     pygame.init()
@@ -364,56 +351,84 @@ def run_game(max_frames: int | None = None) -> None:
     player_sprites = load_player_sprites(sliced_dir)
 
     current_level_num = 1
-    level = Level(current_level_num, assets)
-    player = Player(level.spawn_pos[0], level.spawn_pos[1], player_sprites)
+    level, player = new_game(assets, player_sprites)
 
+    # Level 1 slowly scrolls by behind the main menu.
+    menu_level = Level(1, assets)
+    menu_camera_x = 0.0
+
+    menus = create_menus((SCREEN_WIDTH, SCREEN_HEIGHT), load_icons(assets))
+
+    # The knight and a slime stand left and right of the main menu buttons.
+    menu_knight = MenuCharacter(player_sprites["idle"], 20, 2, FEET_PADDING)
+    menu_slime = MenuCharacter(assets.enemies["slime"], 18, 2)
+    main_panel = menus["menu"].panel
+    menu_feet_y = menus["menu"].buttons[-1].rect.bottom
     camera_x = 0.0
-    game_state = "playing"  # playing, game_over, or victory.
+    # Game states: menu, playing, paused, controls, game_over, victory.
+    game_state = "menu"
+    controls_return_state = "menu"  # where "Back" in the controls screen goes
     frame_count = 0
+
+    def open_menu(name: str) -> str:
+        menus[name].reset()
+        return name
 
     running = True
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
+                continue
+
+            if game_state != "playing":
+                # Menus get all input while they are open.
+                action = menus[game_state].handle_event(event)
+                if action == "start":
+                    current_level_num = 1
+                    level, player = new_game(assets, player_sprites)
+                    camera_x = 0.0
+                    game_state = "playing"
+                elif action == "resume":
+                    game_state = "playing"
+                elif action == "restart_level":
+                    level = load_level(current_level_num, assets, player)
+                    game_state = "playing"
+                elif action == "controls":
+                    controls_return_state = game_state
+                    game_state = open_menu("controls")
+                elif action == "back":
+                    game_state = open_menu(controls_return_state)
+                elif action == "main_menu":
+                    game_state = open_menu("menu")
+                elif action == "quit":
                     running = False
+                continue
+
+            # Gameplay input.
+            if event.type == pygame.WINDOWFOCUSLOST:
+                # Pause automatically when the player switches to another window.
+                game_state = open_menu("paused")
+            elif event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_ESCAPE, pygame.K_p):
+                    game_state = open_menu("paused")
                 elif event.key == pygame.K_SPACE:
-                    if game_state == "playing":
-                        player.trigger_jump()
+                    player.trigger_jump()
                 elif event.key in (pygame.K_w, pygame.K_UP):
-                    if game_state == "playing":
-                        if not player.on_ladder and player.find_climbable_ladder_up(level.ladder_rects) is None:
-                            player.trigger_jump()
+                    if not player.on_ladder and player.find_climbable_ladder_up(level.ladder_rects) is None:
+                        player.trigger_jump()
                 elif event.key in (pygame.K_j, pygame.K_z, pygame.K_x, pygame.K_f, pygame.K_k):
-                    if game_state == "playing":
-                        player.trigger_attack()
+                    player.trigger_attack()
                 elif event.key in (pygame.K_r, pygame.K_RETURN):
-                    if game_state in ("game_over", "victory"):
-                        current_level_num = 1
-                        level = Level(current_level_num, assets)
-                        player = Player(level.spawn_pos[0], level.spawn_pos[1], player_sprites)
-                        game_state = "playing"
-                    else:
-                        level = Level(current_level_num, assets)
-                        player.has_key = False
-                        player.respawn(*level.spawn_pos)
+                    level = load_level(current_level_num, assets, player)
                 elif event.key == pygame.K_1:
                     current_level_num = 1
-                    level = Level(1, assets)
-                    player.has_key = False
-                    player.respawn(*level.spawn_pos)
-                    game_state = "playing"
+                    level = load_level(1, assets, player)
                 elif event.key == pygame.K_2:
                     current_level_num = 2
-                    level = Level(2, assets)
-                    player.has_key = False
-                    player.respawn(*level.spawn_pos)
-                    game_state = "playing"
+                    level = load_level(2, assets, player)
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if game_state == "playing":
-                    player.trigger_attack()
+                player.trigger_attack()
 
         if game_state == "playing":
             keys = pygame.key.get_pressed()
@@ -449,12 +464,10 @@ def run_game(max_frames: int | None = None) -> None:
                 player.score += 1000
                 if current_level_num == 1:
                     current_level_num = 2
-                    level = Level(2, assets)
-                    player.has_key = False
-                    player.respawn(*level.spawn_pos)
+                    level = load_level(2, assets, player)
                     camera_x = 0.0
                 else:
-                    game_state = "victory"
+                    game_state = open_menu("victory")
 
             if player.dead:
                 player.lives -= 1
@@ -463,7 +476,7 @@ def run_game(max_frames: int | None = None) -> None:
                     level.banner_message = f"TRY AGAIN! {player.lives} Lives Remaining"
                     level.banner_timer = 120
                 else:
-                    game_state = "game_over"
+                    game_state = open_menu("game_over")
 
             # Smoothly follow the player.
             target_cam_x = player.rect.centerx - SCREEN_WIDTH * 0.38
@@ -471,34 +484,29 @@ def run_game(max_frames: int | None = None) -> None:
             camera_x += (target_cam_x - camera_x) * 0.14
 
         # Render.
-        cam_int = int(round(camera_x))
-        level.draw(screen, cam_int, font_sm)
-        player.draw(screen, cam_int)
-        for p in level.particles:
-            p.draw(screen, cam_int, font_sm)
+        show_menu_background = game_state == "menu" or (
+            game_state == "controls" and controls_return_state == "menu"
+        )
+        if show_menu_background:
+            # Scroll through level 1 and start again at the end.
+            menu_camera_x = (menu_camera_x + 0.8) % (menu_level.width - SCREEN_WIDTH)
+            menu_level.draw(screen, int(menu_camera_x), font_sm)
+        else:
+            cam_int = int(round(camera_x))
+            level.draw(screen, cam_int, font_sm)
+            player.draw(screen, cam_int)
+            for p in level.particles:
+                p.draw(screen, cam_int, font_sm)
+            draw_hud(screen, player, level, assets, font_sm, font_md, font_lg)
 
-        draw_hud(screen, player, level, assets, font_sm, font_md, font_lg)
-
-        if game_state == "game_over":
-            draw_overlay_screen(
-                screen,
-                "GAME OVER",
-                "Press ENTER or R to Play Again",
-                player,
-                (245, 85, 85),
-                font_md,
-                font_lg,
-            )
-        elif game_state == "victory":
-            draw_overlay_screen(
-                screen,
-                "VICTORY! QUEST COMPLETE!",
-                "Press ENTER or R to Play Again",
-                player,
-                (255, 215, 75),
-                font_md,
-                font_lg,
-            )
+        if game_state != "playing":
+            menu = menus[game_state]
+            if game_state in ("game_over", "victory"):
+                menu.lines = [f"Score: {player.score}   |   Coins: {player.coins}   |   Gems: {player.gems}"]
+            menu.draw(screen, font_sm, font_md)
+            if game_state == "menu":
+                menu_knight.draw(screen, (main_panel.left + 85, menu_feet_y))
+                menu_slime.draw(screen, (main_panel.right - 85, menu_feet_y))
 
         pygame.display.flip()
         clock.tick(FPS)
