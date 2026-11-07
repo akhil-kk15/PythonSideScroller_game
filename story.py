@@ -42,17 +42,55 @@ CROWN_COLORS = {
 }
 
 
-def make_crown(pixel_size):
-    # Draw the crown pixel by pixel from CROWN_PIXELS.
-    width = len(CROWN_PIXELS[0]) * pixel_size
-    height = len(CROWN_PIXELS) * pixel_size
-    crown = pygame.Surface((width, height), pygame.SRCALPHA)
-    for row, line in enumerate(CROWN_PIXELS):
+# The empty stone pedestal where the crown used to lie (red cushion on top).
+PEDESTAL_PIXELS = [
+    "...OOOOOO...",
+    "..ORRRRRRO..",
+    ".ORRrRRrRRO.",
+    ".OOOOOOOOOO.",
+    "OGGGGGGGGGGO",
+    "OOOOOOOOOOOO",
+    "..OLGGGGGO..",
+    "..OLGGGGGO..",
+    "..OLGGGGGO..",
+    "..OLGGGGGO..",
+    "..OLGGGGGO..",
+    ".OOOOOOOOOO.",
+    "OLGGGGGGGGGO",
+    "OOOOOOOOOOOO",
+]
+PEDESTAL_COLORS = {
+    "O": (35, 35, 50),     # dark outline
+    "G": (120, 120, 140),  # stone
+    "L": (170, 170, 190),  # light side of the stone
+    "R": (165, 35, 50),    # red cushion
+    "r": (210, 70, 80),    # light on the cushion
+}
+
+
+def make_pixel_art(pixels, colors, pixel_size):
+    # Draw a picture pixel by pixel from a list of strings.
+    width = len(pixels[0]) * pixel_size
+    height = len(pixels) * pixel_size
+    picture = pygame.Surface((width, height), pygame.SRCALPHA)
+    for row, line in enumerate(pixels):
         for column, letter in enumerate(line):
-            if letter in CROWN_COLORS:
+            if letter in colors:
                 pixel = (column * pixel_size, row * pixel_size, pixel_size, pixel_size)
-                crown.fill(CROWN_COLORS[letter], pixel)
-    return crown
+                picture.fill(colors[letter], pixel)
+    return picture
+
+
+def make_crown(pixel_size):
+    return make_pixel_art(CROWN_PIXELS, CROWN_COLORS, pixel_size)
+
+
+def make_speed_lines():
+    # A few white lines that show that something runs away fast.
+    lines = pygame.Surface((110, 70), pygame.SRCALPHA)
+    for y, length in ((8, 80), (34, 110), (60, 70)):
+        pygame.draw.line(lines, (230, 230, 255, 140), (110 - length, y), (110, y), 4)
+    return lines
 
 
 def breathing(picture):
@@ -60,14 +98,6 @@ def breathing(picture):
     # Played one after another, the figure looks like it is breathing.
     width, height = picture.get_size()
     return [picture, pygame.transform.scale(picture, (width, height + 2))]
-
-
-def in_shadow(picture):
-    # A dark version of a picture (like a silhouette in the dark).
-    # Multiplying every color with a dark purple makes it dark but keeps the shape.
-    dark = picture.copy()
-    dark.fill((35, 30, 50, 255), special_flags=pygame.BLEND_RGBA_MULT)
-    return dark
 
 
 class FloatingFigure(MenuCharacter):
@@ -193,9 +223,6 @@ def create_stories(assets, player_sprites, screen_size, feet_padding, button_ico
         # Every goblin stands still and breathes (first picture of its sprites).
         return MenuCharacter(breathing(enemies[name][0]), 30, scale, flip=flip)
 
-    def goblin_in_shadow(name, scale):
-        return MenuCharacter(breathing(in_shadow(enemies[name][0])), 30, scale)
-
     def item(name, frame_time, scale):
         return FloatingFigure(items[name], frame_time, scale)
 
@@ -215,10 +242,12 @@ def create_stories(assets, player_sprites, screen_size, feet_padding, button_ico
             "But one dark night, a band of goblins crept into the castle and stole the crown!",
             "They carried it to their Stronghold, led by the mighty Goblin Brute.",
         ], [
-            # The Brute waits in the dark, a goblin holds the stolen crown up high.
-            (goblin_in_shadow("goblin_brute", 3), (center_x - 190, FEET_Y)),
-            (goblin("goblin_warrior_walk", 3), (center_x + 110, FEET_Y)),
-            (crown(5), (center_x + 105, FEET_Y - 198)),
+            # The pedestal is empty: a goblin runs away with the crown under its arm.
+            (MenuCharacter([make_pixel_art(PEDESTAL_PIXELS, PEDESTAL_COLORS, 9)], 60, 1), (center_x - 240, FEET_Y)),
+            (MenuCharacter([make_speed_lines()], 60, 1), (center_x - 20, FEET_Y - 50)),
+            # Goblin (running pose) and crown bounce up and down together like running.
+            (FloatingFigure([enemies["goblin_warrior_walk"][2]], 60, 3), (center_x + 130, FEET_Y - 8)),
+            (FloatingFigure([make_crown(4)], 60, 1), (center_x + 95, FEET_Y - 78)),
         ]),
         StoryPage([
             "Young knight Aldric swears to bring the crown back home.",
