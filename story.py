@@ -62,6 +62,14 @@ def breathing(picture):
     return [picture, pygame.transform.scale(picture, (width, height + 2))]
 
 
+def in_shadow(picture):
+    # A dark version of a picture (like a silhouette in the dark).
+    # Multiplying every color with a dark purple makes it dark but keeps the shape.
+    dark = picture.copy()
+    dark.fill((35, 30, 50, 255), special_flags=pygame.BLEND_RGBA_MULT)
+    return dark
+
+
 class FloatingFigure(MenuCharacter):
     # Works like a MenuCharacter, but slowly floats up and down.
     # It inherits everything and only overrides draw().
@@ -185,6 +193,9 @@ def create_stories(assets, player_sprites, screen_size, feet_padding, button_ico
         # Every goblin stands still and breathes (first picture of its sprites).
         return MenuCharacter(breathing(enemies[name][0]), 30, scale, flip=flip)
 
+    def goblin_in_shadow(name, scale):
+        return MenuCharacter(breathing(in_shadow(enemies[name][0])), 30, scale)
+
     def item(name, frame_time, scale):
         return FloatingFigure(items[name], frame_time, scale)
 
@@ -204,11 +215,10 @@ def create_stories(assets, player_sprites, screen_size, feet_padding, button_ico
             "But one dark night, a band of goblins crept into the castle and stole the crown!",
             "They carried it to their Stronghold, led by the mighty Goblin Brute.",
         ], [
-            (goblin("goblin_warrior_walk", 2), (center_x - 230, FEET_Y)),
-            (goblin("goblin_archer", 2), (center_x + 230, FEET_Y)),
-            (goblin("goblin_brute", 3), (center_x, FEET_Y)),
-            (crown(4), (center_x, FEET_Y - 275)),
-            (MenuCharacter(enemies["bat"], 12, 2), (center_x + 420, FEET_Y - 200)),
+            # The Brute waits in the dark, a goblin holds the stolen crown up high.
+            (goblin_in_shadow("goblin_brute", 3), (center_x - 190, FEET_Y)),
+            (goblin("goblin_warrior_walk", 3), (center_x + 110, FEET_Y)),
+            (crown(5), (center_x + 105, FEET_Y - 198)),
         ]),
         StoryPage([
             "Young knight Aldric swears to bring the crown back home.",
