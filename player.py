@@ -3,6 +3,18 @@
 import os
 import pygame
 
+from animation import Animation, OneShotAnimation, Animator
+
+# Height of the knight's body (top of the plume to the feet) in the sprite
+# sheets. idle/run/slash come from base.jpg, the rest from knight.jpg, and the
+# knight is drawn a bit bigger in base.jpg.
+BASE_SHEET_BODY = 233
+KNIGHT_SHEET_BODY = 215
+BASE_SHEET_FRAMES = ["idle_1", "idle_2", "run_1", "run_2", "slash", "jump_attack"]
+
+BODY_HEIGHT = 68     # body height on screen in pixels
+FEET_PADDING = 20    # room below the feet for sword trails
+
 
 class Player:
     """Controllable knight with platformer physics and combat."""
@@ -37,6 +49,7 @@ class Player:
         self.attack_timer = 0
         self.attack_cooldown = 0
         self.combo_step = 0
+        self.last_attack_time = 0  # milliseconds, from pygame.time.get_ticks()
         self.attack_hitbox_active = False
         self.hit_targets_this_swing: set[int] = set()
 
@@ -51,17 +64,20 @@ class Player:
         self.invuln_timer = 0
         self.dead = False
 
-        # Pre-generate frames for both directions.
-        self.sprites_right = sprites
-        self.sprites_left: dict[str, list[pygame.Surface]] = {}
-        for state_name, frame_list in sprites.items():
-            self.sprites_left[state_name] = [
-                pygame.transform.flip(frame, True, False) for frame in frame_list
-            ]
-
-        self.anim_state = "idle"
-        self.anim_index = 0
-        self.anim_timer = 0.0
+        # Animations. The number is how many ticks each frame is shown.
+        # An attack lasts 16 ticks, so its frames add up to about 16.
+        self.animator = Animator({
+            "idle": Animation(sprites["idle"], 20),
+            "run": Animation(sprites["run"], 7),
+            "climb": Animation(sprites["climb"], 8),
+            "jump": Animation(sprites["jump"], 8),
+            "fall": Animation(sprites["fall"], 8),
+            "land": OneShotAnimation(sprites["land"], 6),
+            "attack_1": OneShotAnimation(sprites["attack_1"], 4),
+            "attack_2": OneShotAnimation(sprites["attack_2"], 4),
+            "attack_0": OneShotAnimation(sprites["attack_0"], 5),
+            "air_attack": OneShotAnimation(sprites["air_attack"], 8),
+        }, "idle")
 
     def respawn(self, x: int | None = None, y: int | None = None) -> None:
         """Resets the player at the level spawn point."""
@@ -115,11 +131,22 @@ class Player:
         self.attacking = True
         self.attack_timer = 16
         self.attack_cooldown = 20
+        # After a short pause the combo starts again with the first swing.
+        now = pygame.time.get_ticks()
+        if now - self.last_attack_time > 700:
+            self.combo_step = 0
+        self.last_attack_time = now
         self.combo_step = (self.combo_step + 1) % 3
         self.hit_targets_this_swing.clear()
-        self.anim_index = 0
-        self.anim_timer = 0.0
+        # Start the swing animation from its first frame, even if it is the
+        # same animation as the last swing.
+        self.animator.play(self._get_attack_animation(), restart=True)
         return True
+
+    def _get_attack_animation(self):
+        if not self.on_ground:
+            return "air_attack"
+        return "attack_" + str(self.combo_step)
 
     def get_attack_rect(self) -> pygame.Rect | None:
         """Returns the active sword hitbox in world coordinates when attacking."""
@@ -403,108 +430,111 @@ class Player:
         self._update_animation()
         return events
 
-    def _update_animation(self) -> None:
-        """Selects and advances the appropriate Knight animation frame."""
+    def _update_animation(self):
+        # Pick the animation that matches what the knight is doing.
+        previous = self.animator.get_name()
         if self.attacking:
-            if not self.on_ground:
-                new_state = "air_attack"
-            else:
-                new_state = f"attack_{self.combo_step}"
+            # trigger_attack() already started the right swing animation.
+            name = previous
         elif self.on_ladder:
-            new_state = "climb"
+            name = "climb"
         elif not self.on_ground:
-            new_state = "jump" if self.vel_y < 0 else "fall"
+            if self.vel_y < 0:
+                name = "jump"
+            else:
+                name = "fall"
         elif abs(self.vel_x) > 0.6:
-            new_state = "run"
+            name = "run"
+        elif previous == "jump" or previous == "fall":
+            # Just touched the ground: show the landing pose once.
+            name = "land"
+        elif previous == "land" and not self.animator.is_finished():
+            name = "land"
         else:
-            new_state = "idle"
+            name = "idle"
 
-        if new_state != self.anim_state:
-            self.anim_state = new_state
-            self.anim_index = 0
-            self.anim_timer = 0.0
+        self.animator.play(name)
 
-        frames = self.sprites_right.get(self.anim_state, self.sprites_right["idle"])
-        if self.on_ladder and abs(self.vel_y) < 0.1:
+        # On a ladder the knight only moves while he is climbing.
+        if name == "climb" and abs(self.vel_y) < 0.1:
             return
+        self.animator.update()
 
-        speed_map = {
-            "idle": 0.06,
-            "run": 0.16,
-            "jump": 0.12,
-            "fall": 0.10,
-            "climb": 0.14,
-            "air_attack": 0.18,
-            "attack_0": 0.20,
-            "attack_1": 0.20,
-            "attack_2": 0.20,
-        }
-        self.anim_timer += speed_map.get(self.anim_state, 0.12)
-        if self.anim_timer >= len(frames):
-            self.anim_timer = 0.0
-        self.anim_index = int(self.anim_timer) % len(frames)
-
-    def draw(self, surface: pygame.Surface, camera_x: int, camera_y: int = 0) -> None:
-        """Draws the Knight sprite aligned to his collision box."""
+    def draw(self, surface, camera_x, camera_y=0):
         # Blink while invulnerable.
         if self.invuln_timer > 0 and (self.invuln_timer // 4) % 2 == 1:
             return
 
-        bank = self.sprites_right if self.facing_right else self.sprites_left
-        frames = bank.get(self.anim_state, bank["idle"])
-        frame = frames[self.anim_index % len(frames)]
-
-        fw, fh = frame.get_size()
-        draw_y = self.rect.bottom - fh - camera_y + 2
-
-        # Keep the body centered when the sword extends forward.
-        if self.attacking:
-            if self.facing_right:
-                draw_x = self.rect.left - 10 - camera_x
-            else:
-                draw_x = self.rect.right + 10 - fw - camera_x
-        else:
-            draw_x = self.rect.centerx - (fw // 2) - camera_x
-
-        surface.blit(frame, (draw_x, draw_y))
+        frame = self.animator.get_frame(self.facing_right)
+        # In every frame the head is in the middle and the feet are
+        # FEET_PADDING pixels above the bottom (see load_knight_frame).
+        x = self.rect.centerx - frame.get_width() // 2 - camera_x
+        y = self.rect.bottom + FEET_PADDING - frame.get_height() + 2 - camera_y
+        surface.blit(frame, (x, y))
 
 
-def load_player_sprites(sliced_dir: str = "assets/sliced") -> dict[str, list[pygame.Surface]]:
-    """Loads and scales the sliced Knight sprites for all animation states."""
-    knight_dir = os.path.join(sliced_dir, "knight")
+def find_head(image):
+    # The red plume and scarf show where the knight's head is.
+    # Returns the middle of the red pixels (x) and the top of the plume (y).
+    red = pygame.mask.from_threshold(image, (190, 40, 45, 255), (60, 45, 45, 255))
+    if red.count() == 0:
+        return image.get_width() // 2, 0
+    head_x = red.centroid()[0]
+    head_top = min(rect.top for rect in red.get_bounding_rects())
+    return head_x, head_top
 
-    def _load(name: str, target_h: int = 68) -> pygame.Surface:
-        path = os.path.join(knight_dir, f"{name}.png")
-        img = pygame.image.load(path).convert_alpha()
-        w, h = img.get_size()
-        scale = target_h / max(1, h)
-        new_w = max(1, int(round(w * scale)))
-        return pygame.transform.smoothscale(img, (new_w, target_h))
 
-    idle_1 = _load("idle_1", 68)
-    idle_2 = _load("idle_2", 68)
-    run_1 = _load("run_1", 68)
-    run_2 = _load("run_2", 68)
-    jump_start = _load("jump_start", 72)
-    jump_peak = _load("jump_peak", 72)
-    slash = _load("slash", 70)
-    combo_1 = _load("combo_1", 70)
-    combo_2 = _load("combo_2", 70)
-    combo_3 = _load("combo_3", 70)
-    jump_attack = _load("jump_attack", 78)
-    jump_slash = _load("jump_slash", 76)
+def load_knight_frame(sliced_dir, name):
+    path = os.path.join(sliced_dir, "knight", name + ".png")
+    image = pygame.image.load(path).convert_alpha()
+    head_x, head_top = find_head(image)
 
-    return {
-        "idle": [idle_1, idle_2],
-        "run": [run_1, run_2],
-        "jump": [jump_start, jump_peak],
-        "fall": [jump_peak],
-        "climb": [run_1, run_2],
-        "attack_0": [slash, combo_1],
-        "attack_1": [combo_2, combo_3],
-        "attack_2": [combo_1, slash],
-        "air_attack": [jump_attack, jump_slash],
+    # Scale every frame by the same factor, so the knight keeps his size.
+    if name in BASE_SHEET_FRAMES:
+        scale = BODY_HEIGHT / BASE_SHEET_BODY
+    else:
+        scale = BODY_HEIGHT / KNIGHT_SHEET_BODY
+    width = round(image.get_width() * scale)
+    height = round(image.get_height() * scale)
+    image = pygame.transform.smoothscale(image, (width, height))
+    head_x = round(head_x * scale)
+    head_top = round(head_top * scale)
+
+    # Put the frame on a canvas where the head is always in the middle and
+    # the feet are always FEET_PADDING pixels above the bottom. Then the
+    # knight does not jump around when the animation changes frames.
+    half_width = max(head_x, width - head_x)
+    canvas_height = head_top + BODY_HEIGHT + FEET_PADDING
+    canvas = pygame.Surface((half_width * 2, canvas_height), pygame.SRCALPHA)
+    canvas.blit(image, (half_width - head_x, 0))
+    return canvas
+
+
+def load_player_sprites(sliced_dir="assets/sliced"):
+    # Which sliced images belong to which animation, in playing order.
+    # Swings go attack_1 -> attack_2 -> attack_0 (see trigger_attack).
+    animation_frames = {
+        "idle": ["idle_1", "idle_2"],
+        "run": ["run_1", "run_2"],
+        "climb": ["run_1", "run_2"],  # the sprite sheets have no climbing pose
+        "jump": ["jump_start"],
+        "fall": ["jump_start"],
+        "land": ["jump_land"],
+        "attack_1": ["combo_1", "combo_2", "combo_3", "combo_recover"],
+        "attack_2": ["chop_raise", "chop_strike", "chop_extend", "chop_recover"],
+        "attack_0": ["heavy_raise", "heavy_crescent", "heavy_recover"],
+        "air_attack": ["jump_peak", "jump_slash"],
     }
+
+    loaded = {}  # load every image only once, even if two animations use it
+    sprites = {}
+    for animation_name, frame_names in animation_frames.items():
+        sprites[animation_name] = []
+        for frame_name in frame_names:
+            if frame_name not in loaded:
+                loaded[frame_name] = load_knight_frame(sliced_dir, frame_name)
+            sprites[animation_name].append(loaded[frame_name])
+    return sprites
 
 
 if __name__ == "__main__":
