@@ -185,11 +185,22 @@ KNIGHT_SPRITES = [
     ("knight", "combo_1", (305, 82, 292, 224), False, True),
     ("knight", "combo_2", (642, 82, 229, 224), False, True),
     ("knight", "combo_3", (918, 82, 232, 224), False, True),
+    ("knight", "combo_recover", (1179, 84, 162, 227), False, True),
+    # Heavy overhead chop (first row).
+    ("knight", "chop_raise", (1693, 90, 296, 221), False, True),
+    ("knight", "chop_strike", (2026, 88, 183, 224), False, True),
+    ("knight", "chop_extend", (2256, 84, 196, 227), False, True),
+    ("knight", "chop_recover", (2492, 83, 164, 228), False, True),
+    # Heavy overhead chop (second row).
+    ("knight", "heavy_raise", (291, 392, 187, 248), False, True),
+    ("knight", "heavy_crescent", (598, 379, 315, 263), False, True),
+    ("knight", "heavy_recover", (1179, 415, 162, 224), False, True),
     # Lunge and jump attacks.
     ("knight", "lunge", (408, 725, 353, 231), False, True),
     ("knight", "jump_start", (1827, 680, 143, 260), False, True),
-    ("knight", "jump_peak", (2029, 657, 165, 250), False, True),
+    ("knight", "jump_peak", (1992, 653, 207, 251), False, True),
     ("knight", "jump_slash", (2241, 680, 190, 260), False, True),
+    ("knight", "jump_land", (2502, 739, 177, 222), False, True),
     # Spin attack.
     ("knight", "spin_1", (375, 1060, 346, 222), False, True),
     ("knight", "spin_2", (756, 1060, 332, 222), False, True),
@@ -211,21 +222,32 @@ GOBLIN_SPRITES = [
     ("enemies", "goblin_warrior_walk_2", (636, 55, 189, 217), False, True),
     ("enemies", "goblin_warrior_attack_1", (895, 16, 198, 256), False, True),
     ("enemies", "goblin_warrior_attack_2", (1194, 50, 214, 222), False, True),
+    ("enemies", "goblin_warrior_attack_3", (1464, 77, 252, 200), False, True),
     ("enemies", "goblin_warrior_hurt", (1755, 45, 203, 227), False, True),
+    ("enemies", "goblin_warrior_hurt_2", (2021, 54, 229, 223), False, True),
     ("enemies", "goblin_warrior_dead", (2369, 120, 280, 152), False, True),
     # Goblin archer.
     ("enemies", "goblin_archer_idle", (86, 374, 198, 232), False, True),
+    ("enemies", "goblin_archer_draw", (357, 386, 210, 224), False, True),
     ("enemies", "goblin_archer_aim", (630, 374, 253, 232), False, True),
     ("enemies", "goblin_archer_shoot", (930, 374, 259, 232), False, True),
+    ("enemies", "goblin_archer_release", (1269, 386, 224, 224), False, True),
+    ("enemies", "goblin_archer_hurt", (2026, 368, 219, 242), False, True),
+    ("enemies", "goblin_archer_dead", (2365, 495, 332, 112), False, True),
     ("enemies", "goblin_arrow", (1659, 465, 174, 50), True, True),
     # Goblin mage.
     ("enemies", "goblin_mage_idle", (86, 685, 227, 265), False, True),
+    ("enemies", "goblin_mage_charge", (481, 691, 270, 270), False, True),
     ("enemies", "goblin_mage_cast", (1067, 685, 238, 265), False, True),
     ("enemies", "goblin_fireball", (1448, 750, 347, 160), True, True),
+    ("enemies", "goblin_mage_hurt", (2015, 702, 230, 259), False, True),
+    ("enemies", "goblin_mage_dead", (2364, 776, 311, 185), False, True),
     # Goblin brute.
     ("enemies", "goblin_brute_idle", (75, 1020, 382, 265), False, True),
-    ("enemies", "goblin_brute_attack", (500, 960, 415, 325), False, True),
+    ("enemies", "goblin_brute_attack", (496, 931, 421, 356), False, True),
     ("enemies", "goblin_brute_smash", (1279, 1020, 374, 265), False, True),
+    ("enemies", "goblin_brute_hurt", (1962, 1017, 300, 270), False, True),
+    ("enemies", "goblin_brute_dead", (2353, 1103, 352, 194), False, True),
     # Goblin props.
     ("props", "barricade", (82, 1310, 302, 182), False, True),
     ("props", "banner", (946, 1185, 142, 308), False, True),
@@ -241,9 +263,6 @@ def slice_all_assets(assets_dir: str = "assets", force: bool = False) -> str:
     Returns the path to the `sliced` directory.
     """
     sliced_dir = os.path.join(assets_dir, "sliced")
-    marker_file = os.path.join(sliced_dir, ".sliced_v1")
-    if os.path.exists(marker_file) and not force:
-        return sliced_dir
 
     if not pygame.get_init():
         pygame.init()
@@ -254,13 +273,23 @@ def slice_all_assets(assets_dir: str = "assets", force: bool = False) -> str:
         "goblin.jpg": GOBLIN_SPRITES,
     }
 
-    total_saved = 0
     for sheet_filename, sprite_defs in sheets.items():
         sheet_path = os.path.join(assets_dir, sheet_filename)
         if not os.path.exists(sheet_path):
             continue
+
+        # Only slice sprites whose PNG is missing, so new entries are added
+        # without rewriting the files that already exist.
+        missing = []
+        for sprite_def in sprite_defs:
+            out_path = os.path.join(sliced_dir, sprite_def[0], sprite_def[1] + ".png")
+            if force or not os.path.exists(out_path):
+                missing.append(sprite_def)
+        if len(missing) == 0:
+            continue
+
         sheet = pygame.image.load(sheet_path)
-        for category, name, rect, rem_interior, trim in sprite_defs:
+        for category, name, rect, rem_interior, trim in missing:
             cat_dir = os.path.join(sliced_dir, category)
             os.makedirs(cat_dir, exist_ok=True)
             out_path = os.path.join(cat_dir, f"{name}.png")
@@ -272,6 +301,9 @@ def slice_all_assets(assets_dir: str = "assets", force: bool = False) -> str:
                 excl = [(1190, 710, 18, 50)]
             elif name == "heart_empty":
                 strict = True
+            elif name == "goblin_brute_attack":
+                # The mage's feet from the row above reach into this crop.
+                excl = [(496, 931, 262, 28)]
 
             sprite_surf = extract_sprite(
                 sheet,
@@ -282,11 +314,6 @@ def slice_all_assets(assets_dir: str = "assets", force: bool = False) -> str:
                 strict_bg_only=strict,
             )
             pygame.image.save(sprite_surf, out_path)
-            total_saved += 1
-
-    os.makedirs(sliced_dir, exist_ok=True)
-    with open(marker_file, "w", encoding="utf-8") as f:
-        f.write(f"Sliced {total_saved} sprites\n")
 
     return sliced_dir
 
