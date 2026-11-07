@@ -322,13 +322,29 @@ def new_game(assets: AssetLibrary, player_sprites) -> tuple[Level, Player]:
     return level, player
 
 
-def show_results(menu, player: Player, level_num: int, highscore_path: str) -> None:
+def get_stats(player: Player) -> tuple[int, int, int]:
+    """Score, coins and gems of the player as one tuple."""
+    return (player.score, player.coins, player.gems)
+
+
+def set_stats(player: Player, stats: tuple[int, int, int]) -> None:
+    """Put back score, coins and gems that were saved with get_stats()."""
+    player.score, player.coins, player.gems = stats
+
+
+def show_results(menu, player: Player, level_num: int, highscore_path: str, save: bool = True) -> None:
     """Save the finished game as a highscore and show the results in the menu."""
-    new_place = add_highscore(highscore_path, player.score, level_num)
+    if save:
+        new_place = add_highscore(highscore_path, player.score, level_num)
+        note = "TOP 5 HIGHSCORES"
+    else:
+        # Runs where levels were skipped with 1/2 do not count.
+        new_place = None
+        note = "Level skip (1/2) used - score not saved"
     menu.lines = [
         f"Score: {player.score}   |   Coins: {player.coins}   |   Gems: {player.gems}",
         "",
-        "TOP 5 HIGHSCORES",
+        note,
     ] + highscore_lines(load_highscores(highscore_path), new_place)
 
 
@@ -381,6 +397,10 @@ def run_game(max_frames: int | None = None) -> None:
     game_state = "menu"
     controls_return_state = "menu"  # where "Back" in the controls screen goes
     frame_count = 0
+    # Score, coins and gems when the current level started. Restarting the
+    # level sets them back, so the same coins cannot be collected twice.
+    level_start_stats = (0, 0, 0)
+    level_skip_used = False  # True after 1/2 was pressed; then no highscore
 
     def open_menu(name: str) -> str:
         menus[name].reset()
@@ -404,12 +424,15 @@ def run_game(max_frames: int | None = None) -> None:
                 if action == "start":
                     current_level_num = 1
                     level, player = new_game(assets, player_sprites)
+                    level_start_stats = (0, 0, 0)
+                    level_skip_used = False
                     camera_x = 0.0
                     game_state = "playing"
                 elif action == "resume":
                     game_state = "playing"
                 elif action == "restart_level":
                     level = load_level(current_level_num, assets, player)
+                    set_stats(player, level_start_stats)
                     game_state = "playing"
                 elif action == "controls":
                     controls_return_state = game_state
@@ -438,12 +461,13 @@ def run_game(max_frames: int | None = None) -> None:
                     player.trigger_attack()
                 elif event.key in (pygame.K_r, pygame.K_RETURN):
                     level = load_level(current_level_num, assets, player)
-                elif event.key == pygame.K_1:
-                    current_level_num = 1
-                    level = load_level(1, assets, player)
-                elif event.key == pygame.K_2:
-                    current_level_num = 2
-                    level = load_level(2, assets, player)
+                    set_stats(player, level_start_stats)
+                elif event.key in (pygame.K_1, pygame.K_2):
+                    # Jump to a level (for testing). This run will not be saved as a highscore.
+                    current_level_num = 1 if event.key == pygame.K_1 else 2
+                    level = load_level(current_level_num, assets, player)
+                    level_start_stats = get_stats(player)
+                    level_skip_used = True
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 player.trigger_attack()
 
@@ -482,10 +506,12 @@ def run_game(max_frames: int | None = None) -> None:
                 if current_level_num == 1:
                     current_level_num = 2
                     level = load_level(2, assets, player)
+                    level_start_stats = get_stats(player)
                     camera_x = 0.0
                 else:
                     game_state = open_menu("victory")
-                    show_results(menus["victory"], player, current_level_num, highscore_path)
+                    show_results(menus["victory"], player, current_level_num, highscore_path,
+                                 save=not level_skip_used)
 
             if player.dead:
                 player.lives -= 1
@@ -495,7 +521,8 @@ def run_game(max_frames: int | None = None) -> None:
                     level.banner_timer = 120
                 else:
                     game_state = open_menu("game_over")
-                    show_results(menus["game_over"], player, current_level_num, highscore_path)
+                    show_results(menus["game_over"], player, current_level_num, highscore_path,
+                                 save=not level_skip_used)
 
             # Smoothly follow the player.
             target_cam_x = player.rect.centerx - SCREEN_WIDTH * 0.38

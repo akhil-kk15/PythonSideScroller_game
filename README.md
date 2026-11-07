@@ -85,8 +85,10 @@ with the mouse or with `W` / `S` (or the arrow keys) and `Enter`.
 - **Drop through bridges:** hold `S` or down and press `Space`
 - **Climb ladders:** `W` / `S` or the up/down arrow keys while touching a ladder
 - **Attack:** `J`, `Z`, `X`, `F`, `K`, or left mouse click
-- **Switch levels:** `1` for Emerald Grasslands, `2` for Goblin Stronghold
-- **Restart level:** `R` or `Enter`
+- **Switch levels (for testing):** `1` for Emerald Grasslands, `2` for Goblin
+  Stronghold. A run where this was used is not saved as a highscore.
+- **Restart level:** `R` or `Enter` (score, coins and gems go back to the
+  values from the start of the level)
 - **Pause:** `Esc` or `P`
 
 ## Test the project
