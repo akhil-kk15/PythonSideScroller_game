@@ -8,6 +8,7 @@ from slice_assets import slice_all_assets
 from player import FEET_PADDING, Player, load_player_sprites
 from level import AssetLibrary, Collectible, Level, VFXParticle
 from ui import MenuCharacter, create_menus, load_icons
+from story import create_stories
 from highscores import add_highscore, best_score_text, highscore_lines, load_highscores
 
 SCREEN_WIDTH = 1280
@@ -360,7 +361,7 @@ def run_game(max_frames: int | None = None) -> None:
     """Initializes Pygame, slices sprite sheets if needed, and runs the main game loop."""
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-    pygame.display.set_caption("Knight's Quest - Side-Scroller (Dangerous Dave / Mario Style)")
+    pygame.display.set_caption("Knight's Quest - The Stolen Crown")
     clock = pygame.time.Clock()
 
     # Slice sprite sheets when needed.
@@ -385,7 +386,13 @@ def run_game(max_frames: int | None = None) -> None:
     menu_level = Level(1, assets)
     menu_camera_x = 0.0
 
-    menus = create_menus((SCREEN_WIDTH, SCREEN_HEIGHT), load_icons(assets))
+    icons = load_icons(assets)
+    menus = create_menus((SCREEN_WIDTH, SCREEN_HEIGHT), icons)
+
+    # Story scenes: before level 1, before level 2 and after the last level.
+    stories = create_stories(assets, player_sprites, (SCREEN_WIDTH, SCREEN_HEIGHT), FEET_PADDING, icons["key"])
+    current_story = stories["intro"]
+    story_next_state = "playing"  # state after the story is finished
 
     # The knight and a slime stand left and right of the main menu buttons.
     menu_knight = MenuCharacter(player_sprites["idle"], 20, 2, FEET_PADDING)
@@ -393,7 +400,7 @@ def run_game(max_frames: int | None = None) -> None:
     main_panel = menus["menu"].panel
     menu_feet_y = menus["menu"].buttons[-1].rect.bottom
     camera_x = 0.0
-    # Game states: menu, playing, paused, controls, game_over, victory.
+    # Game states: menu, story, playing, paused, controls, game_over, victory.
     game_state = "menu"
     controls_return_state = "menu"  # where "Back" in the controls screen goes
     frame_count = 0
@@ -418,6 +425,14 @@ def run_game(max_frames: int | None = None) -> None:
                 running = False
                 continue
 
+            if game_state == "story":
+                if current_story.handle_event(event) == "done":
+                    if story_next_state == "playing":
+                        game_state = "playing"
+                    else:
+                        game_state = open_menu(story_next_state)
+                continue
+
             if game_state != "playing":
                 # Menus get all input while they are open.
                 action = menus[game_state].handle_event(event)
@@ -427,7 +442,11 @@ def run_game(max_frames: int | None = None) -> None:
                     level_start_stats = (0, 0, 0)
                     level_skip_used = False
                     camera_x = 0.0
-                    game_state = "playing"
+                    # Show the intro story first, then start playing.
+                    current_story = stories["intro"]
+                    current_story.reset()
+                    story_next_state = "playing"
+                    game_state = "story"
                 elif action == "resume":
                     game_state = "playing"
                 elif action == "restart_level":
@@ -508,10 +527,18 @@ def run_game(max_frames: int | None = None) -> None:
                     level = load_level(2, assets, player)
                     level_start_stats = get_stats(player)
                     camera_x = 0.0
+                    current_story = stories["level_2"]
+                    current_story.reset()
+                    story_next_state = "playing"
+                    game_state = "story"
                 else:
-                    game_state = open_menu("victory")
                     show_results(menus["victory"], player, current_level_num, highscore_path,
                                  save=not level_skip_used)
+                    # Show the ending story first, then the victory screen.
+                    current_story = stories["ending"]
+                    current_story.reset()
+                    story_next_state = "victory"
+                    game_state = "story"
 
             if player.dead:
                 player.lives -= 1
@@ -533,7 +560,9 @@ def run_game(max_frames: int | None = None) -> None:
         show_menu_background = game_state == "menu" or (
             game_state == "controls" and controls_return_state == "menu"
         )
-        if show_menu_background:
+        if game_state == "story":
+            current_story.draw(screen, font_sm, font_md, font_lg)
+        elif show_menu_background:
             # Scroll through level 1 and start again at the end.
             menu_camera_x = (menu_camera_x + 0.8) % (menu_level.width - SCREEN_WIDTH)
             menu_level.draw(screen, int(menu_camera_x), font_sm)
@@ -545,7 +574,7 @@ def run_game(max_frames: int | None = None) -> None:
                 p.draw(screen, cam_int, font_sm)
             draw_hud(screen, player, level, assets, font_sm, font_md, font_lg)
 
-        if game_state != "playing":
+        if game_state not in ("playing", "story"):
             menu = menus[game_state]
             menu.draw(screen, font_sm, font_md)
             if game_state == "menu":

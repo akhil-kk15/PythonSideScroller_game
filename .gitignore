@@ -10,3 +10,6 @@ __pycache__/
 # Distribution / builds
 build/
 dist/
+
+# Local highscore list (every player has their own)
+highscores.txt
