@@ -4,6 +4,8 @@ import math
 import os
 import pygame
 
+from background import load_background
+
 TILE_SIZE = 64
 
 
@@ -29,6 +31,12 @@ class AssetLibrary:
         self.ui: dict[str, pygame.Surface] = {}
         self.vfx: dict[str, pygame.Surface] = {}
         self._load_all()
+
+        # Parallax backgrounds, one per level (see background.py).
+        backgrounds_dir = os.path.join(os.path.dirname(sliced_dir), "backgrounds")
+        self.backgrounds = {}
+        for level_number in (1, 2):
+            self.backgrounds[level_number] = load_background(backgrounds_dir, level_number)
 
     def _load_raw(self, category: str, name: str) -> pygame.Surface:
         path = os.path.join(self.sliced_dir, category, f"{name}.png")
@@ -875,9 +883,13 @@ class Level:
             return self.solid_rects + [self.locked_door["rect"]]
         return self.solid_rects
 
-    def draw_background(self, surface: pygame.Surface, camera_x: int) -> None:
-        """Clear the screen until the final background art is added."""
-        surface.fill((24, 28, 38))
+    def draw_background(self, surface, camera_x):
+        # Draw the parallax layers of this level.
+        background = self.assets.backgrounds.get(self.level_number)
+        if background is None:
+            surface.fill((24, 28, 38))
+        else:
+            background.draw(surface, camera_x)
 
     def draw(self, surface: pygame.Surface, camera_x: int, font: pygame.font.Font) -> None:
         """Draw the level and its entities."""
