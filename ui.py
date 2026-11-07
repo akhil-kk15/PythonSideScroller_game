@@ -148,11 +148,14 @@ class Menu:
 
 
 class MenuCharacter:
-    # An animated figure that stands next to the buttons of the main menu.
+    # An animated figure that stands in the main menu and in the story scenes.
     # It reuses the Animation class from animation.py.
 
-    def __init__(self, frames, frame_time, scale, feet_padding=0):
+    def __init__(self, frames, frame_time, scale, feet_padding=0, flip=False):
         big_frames = [pygame.transform.smoothscale_by(frame, scale) for frame in frames]
+        if flip:
+            # Mirror the pictures so the figure looks the other way.
+            big_frames = [pygame.transform.flip(frame, True, False) for frame in big_frames]
         self.animation = Animation(big_frames, frame_time)
         self.feet_padding = round(feet_padding * scale)  # empty space below the feet
 
@@ -191,7 +194,7 @@ def create_menus(screen_size, icons=None):
                 ("Quit", "quit", "heart_empty"),
             ],
             screen_size,
-            lines=["Find the Gold Key and reach the Cave Exit!", ""],  # 2nd line: best score
+            lines=["The goblins stole the Golden Crown - bring it back!", ""],  # 2nd line: best score
             icons=icons,
             title_size=60,
             overlay_alpha=120,
