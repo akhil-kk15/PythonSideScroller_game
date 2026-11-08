@@ -1,149 +1,177 @@
-# PythonSideScroller_game
+# Knight's Quest: The Stolen Crown
 
-A Python/Pygame side-scroller game with two levels, platforming, combat,
-collectibles, ladders, and enemies.
+A retro 2D action-platformer built with Python and Pygame. Play as **Aldric**, battle through the **Emerald Grasslands** and the **Goblin Stronghold**, dodge traps, smash crates, defeat the Goblin Brute, and bring back the kingdom's stolen Golden Crown!
 
-## Requirements
+---
 
-- Python 3.10 or newer
-- A desktop environment that can open a Pygame window
-- `pip`
+## Play in 60 Seconds (Zero-Effort Setup)
 
-## Clone and install
+### Before You Start: Install Python (If You Don't Have It)
+You only need **Python 3.10 or newer**:
+- Download it from **[python.org/downloads](https://www.python.org/downloads/)**.
+- **Windows users:** On the very first installer screen, check the box that says **"Add python.exe to PATH"** before clicking *Install Now*.
 
-Clone the repository and enter its folder:
+---
 
+### Option 1: Copy & Paste (If You Have Git)
+
+Open your terminal (**PowerShell** or **Command Prompt** on Windows, **Terminal** on macOS/Linux), copy the block for your system, paste it in, and press **Enter** — the game will install and launch automatically!
+
+#### Windows (PowerShell or Command Prompt)
+```powershell
+git clone https://github.com/akhil-kk15/PythonSideScroller_game.git
+cd PythonSideScroller_game
+py -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python main.py
+```
+> *Tip: If `py` isn't recognized on your Windows PC, replace `py` with `python` on line 3.*
+
+#### macOS & Linux
 ```bash
 git clone https://github.com/akhil-kk15/PythonSideScroller_game.git
 cd PythonSideScroller_game
-```
-
-Create and activate a virtual environment.
-
-### Linux or macOS
-
-```bash
 python3 -m venv .venv
-source .venv/bin/activate
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python main.py
 ```
 
-### Windows PowerShell
+---
 
+### Option 2: No Git? Download the ZIP Instead!
+
+1. At the top of the GitHub page, click the green **`<> Code`** button and click **`Download ZIP`**.
+2. **Unzip / Extract** the downloaded file anywhere you like (for example, your `Desktop` or `Downloads` folder).
+3. Open the extracted folder **until you see `main.py` inside it**, then open a terminal right there:
+   - **Windows:** Right-click an empty spot inside that folder and click **"Open in Terminal"** (or click the folder's address bar at the top, type `cmd`, and press **Enter**).
+   - **macOS:** Go one level up in Finder, right-click (or two-finger click) the game folder, and choose **"New Terminal at Folder"**.
+   - **Linux:** Right-click an empty spot inside that folder and choose **"Open in Terminal"**.
+4. Copy and paste the command block below and press **Enter**:
+
+**Windows:**
 ```powershell
 py -m venv .venv
-.venv\Scripts\Activate.ps1
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python main.py
 ```
 
-Install the project dependencies:
-
+**macOS & Linux:**
 ```bash
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python main.py
 ```
 
-## Prepare the game assets
+*(All game sprites are already included and automatically prepared on first launch — no extra setup steps needed!)*
 
-The combined sprite sheets are included in `assets/`. Generate the individual
-sprites used by the game with:
+---
 
-```bash
-python slice_assets.py
-```
+### Playing Again Next Time
 
-This creates the `assets/sliced/` directory. Run the command again whenever
-the source sprite sheets change.
+Once you've done the setup above once, you **never** need to install anything again. Next time you want to play, open a terminal in the game folder and run just this one line:
 
-## Play the game
+- **Windows:**
+  ```powershell
+  .venv\Scripts\python main.py
+  ```
+- **macOS & Linux:**
+  ```bash
+  .venv/bin/python main.py
+  ```
 
-Start the game with:
-
-```bash
-python main.py
-```
-
-If the virtual environment is not activated, use `.venv/bin/python main.py` on
-Linux/macOS or `.venv\Scripts\python.exe main.py` on Windows.
-
-You can also pre-select the controller input backend from the command line on
-Linux, Windows, or macOS (`auto`, `xinput`, or `directinput`; default `auto`
-accepts both XInput and DirectInput):
-
-```bash
-python main.py --controller-mode auto
-```
-
-## Story: The Stolen Crown
-
-Goblins have stolen the Golden Crown of the kingdom and carried it to their
-Stronghold. The young knight Aldric sets out to bring it back: first through
-the Emerald Grasslands (level 1), where he needs the Gold Key for the cave
-gate, then into the Goblin Stronghold (level 2), guarded by archers and the
-Goblin Brute.
-
-Short illustrated story scenes are shown before level 1, before level 2 and
-after the last level (`story.py`). `Enter`, `(A)`, or the Continue button goes
-to the next page; `Esc`, `(B)`, or `Start` skips the story.
-
-## Menus
-
-The game starts in the main menu (Start Game, Controls, Quit). All menus work
-with the mouse, with `W` / `S` (or the arrow keys) and `Enter`, or with a
-controller's Left Stick / D-Pad and `(A)` (`(B)` for Back).
-
-- **Pause menu:** `Esc`, `P`, or `Start` during the game. It offers Resume, Restart
-  Level, Controls, Main Menu, and Quit Game. `Esc`, `(B)`, or `Start` closes it
-  again. The game also pauses automatically when the window loses focus.
-- **Controls menu:** shows keyboard and Xbox/gamepad bindings, displays live
-  controller connection status, and lets you switch the controller input API
-  between **Auto (XInput + DirectInput)**, **XInput**, and **DirectInput** on
-  Linux, Windows, and macOS.
-- **Game over / victory:** shows the final score and the top 5 highscores with
-  Play Again, Main Menu, and Quit.
-- **Highscores:** every finished game is saved in `highscores.txt` next to
-  `main.py` (one line per entry: `score;level;date`). The main menu shows the
-  best score. Delete the file to reset the list.
+---
 
 ## Controls
 
-### Keyboard & Mouse
+Play with **Keyboard & Mouse** or **any Gamepad / Controller** (Xbox, PlayStation, 8BitDo, Logitech, or generic USB/Bluetooth). You can plug in a controller at any time — even in the middle of a level!
 
-- **Move left/right:** `A` / `D` or the left/right arrow keys
-- **Jump:** `Space`, `W`, or the up arrow
-- **Drop through bridges:** hold `S` or down and press `Space`
-- **Climb ladders:** `W` / `S` or the up/down arrow keys while touching a ladder
-- **Attack:** `J`, `Z`, `X`, `F`, `K`, or left mouse click
-- **Switch levels (for testing):** `1` for Emerald Grasslands, `2` for Goblin
-  Stronghold. A run where this was used is not saved as a highscore.
-- **Restart level:** `R` or `Enter` (score, coins and gems go back to the
-  values from the start of the level)
-- **Pause:** `Esc` or `P`
+| Action | Keyboard & Mouse | Controller (Gamepad) |
+| :--- | :--- | :--- |
+| **Move Left / Right** | `A` / `D` or `Left` / `Right` Arrows | Left Stick or D-Pad |
+| **Jump** *(tap = hop, hold = high jump)* | `Space`, `W`, or `Up` Arrow | `A` (bottom button) or `LB` |
+| **Drop Down Through Wooden Bridges** | Hold `S` (or `Down`) + press `Space` | Hold `Down` + press `A` |
+| **Climb Ladders** | `W` / `S` or `Up` / `Down` Arrows | Left Stick or D-Pad `Up` / `Down` |
+| **Sword Attack / Air Slash** | `J`, `Z`, `X`, `F`, `K`, or `Left Click` | `X`, `B`, `Y`, `RB`, or `RT` |
+| **Pause / Resume** | `Esc` or `P` | `Start` / `Menu` |
+| **Restart Current Level** | `R` or `Enter` | `Back` / `Select` / `View` |
+| **Navigate Menus** | Mouse, or `W`/`S` / Arrows + `Enter` | Left Stick / D-Pad + `A` (`B` = Back) |
+| **Story Cutscenes** | `Enter` / `Space` / Click = Next, `Esc` = Skip | `A` = Next, `B` or `Start` = Skip |
 
-### Xbox / Gamepad Controller (XInput & DirectInput — Linux, Windows, macOS)
+---
 
-Controllers can be plugged in or connected wirelessly at any time (hot-plugging
-is supported):
+## Troubleshooting (Quick Fixes)
 
-- **Move left/right:** Left Stick or D-Pad Left / Right
-- **Jump:** `A` or `LB` (hold for a full jump, tap for a short hop)
-- **Drop through bridges:** hold Down (Left Stick or D-Pad) and press `A`
-- **Climb ladders:** Left Stick Up / Down or D-Pad Up / Down
-- **Attack:** `X`, `B`, `Y`, `RB`, or `RT` (Right Trigger)
-- **Restart level:** `Back` / `View` (Select)
-- **Pause / Resume:** `Start` / `Menu`
-- **Menus & Story:** Left Stick / D-Pad to navigate, `A` to confirm/continue,
-  `B` to go back or skip story scenes
-- **XInput / DirectInput mode:** defaults to **Auto (XInput + DirectInput)** and
-  can be switched live in **Controls -> Mode** or at launch with
-  `--controller-mode {auto,xinput,directinput}`
+<details>
+<summary><b>"python / py / python3 is not recognized"</b></summary>
 
-## Test the project
+Python isn't installed or wasn't added to your `PATH`.
+- Install Python 3.10+ from **[python.org/downloads](https://www.python.org/downloads/)**.
+- On Windows, re-run the Python installer, click **Modify**, and make sure **"Add Python to environment variables" / "Add python.exe to PATH"** is checked. Close and reopen your terminal afterward.
+</details>
 
-There is no automated test suite yet. You can still check that all Python
-files compile successfully:
+<details>
+<summary><b>"No such file or directory: 'requirements.txt'" or "'main.py'"</b></summary>
 
+Your terminal isn't inside the game's folder yet. Use `cd` to enter the folder first (for example `cd PythonSideScroller_game` or `cd PythonSideScroller_game-main` if you downloaded the ZIP), then run the commands again.
+</details>
+
+<details>
+<summary><b>"No module named 'pygame'" when starting the game</b></summary>
+
+Make sure you start the game using the virtual environment's Python rather than system Python:
+- **Windows:** `.venv\Scripts\python main.py`
+- **macOS / Linux:** `.venv/bin/python main.py`
+</details>
+
+<details>
+<summary><b>Windows PowerShell says "running scripts is disabled on this system"</b></summary>
+
+You don't need `.venv\Scripts\Activate.ps1`! Just run `.venv\Scripts\python main.py` directly as shown in this guide — it works in PowerShell with zero security settings changes.
+</details>
+
+<details>
+<summary><b>Linux (Ubuntu / Mint / Debian) says "ensurepip is not available" or "python3-venv"</b></summary>
+
+Install the standard Python virtual environment package once, then re-run the setup block:
 ```bash
-python -m compileall -q *.py
+sudo apt update && sudo apt install -y python3-venv
 ```
+</details>
 
-Then launch the game and verify movement, jumping, combat, collectibles,
-level switching, restarting, and quitting.
+<details>
+<summary><b>My controller isn't working or the buttons feel swapped</b></summary>
+
+1. Open **Controls** from the Main Menu or Pause Menu.
+2. Check the live **Gamepad** status line at the bottom of the panel.
+3. Click the **`Mode: Auto (Both)`** button to switch between **Auto**, **XInput** (Xbox-style), and **DirectInput** (classic USB/Bluetooth pads).
+4. You can also choose a mode at launch:
+   ```bash
+   python main.py --controller-mode auto          # default
+   python main.py --controller-mode xinput
+   python main.py --controller-mode directinput
+   ```
+</details>
+
+---
+
+## For Developers & Modders
+
+- **Testing level-jump keys:** Press `1` or `2` during gameplay to jump directly to Level 1 or Level 2 (highscores are not saved for that run; delete `highscores.txt` anytime to reset saved scores).
+- **Re-slice sprite sheets:** If you edit the master sprite sheets in `assets/` (`base.jpg`, `knight.jpg`, `goblin.jpg`), regenerate all PNGs in `assets/sliced/` with:
+  ```bash
+  .venv/bin/python slice_assets.py        # macOS / Linux
+  .venv\Scripts\python slice_assets.py    # Windows
+  ```
+- **Syntax / compile check:**
+  ```bash
+  .venv/bin/python -m compileall -q *.py
+  ```
+- **Code structure:**
+  - `main.py` — game loop, HUD, interactions, state management
+  - `player.py` — knight physics, ladders, jump buffering/coyote time, 3-hit sword combo
+  - `level.py` — Level 1 & Level 2 layouts, tile/ladder carving, enemy AI, collectibles
+  - `story.py` — animated pixel-art story cutscenes
+  - `ui.py` — mouse/keyboard/controller menus
+  - `joystick.py` — cross-platform XInput & DirectInput hot-plug controller support
+  - `highscores.py` — persistent top-5 leaderboard (`highscores.txt`)
+  - `background.py` & `animation.py` — parallax backgrounds and sprite animation system
