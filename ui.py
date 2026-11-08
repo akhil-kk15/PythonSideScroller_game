@@ -121,6 +121,22 @@ class Menu:
                 return self.back_action
         return None
 
+    def handle_gamepad(self, gamepad):
+        # Navigate and activate menu buttons using an Xbox / DirectInput controller.
+        if gamepad.nav_up:
+            self.selected = (self.selected - 1) % len(self.buttons)
+        elif gamepad.nav_down:
+            self.selected = (self.selected + 1) % len(self.buttons)
+        if gamepad.confirm:
+            return self.buttons[self.selected].action
+        if gamepad.back:
+            return self.back_action
+        if gamepad.pause:
+            if self.back_action is not None:
+                return self.back_action
+            return self.buttons[self.selected].action
+        return None
+
     def draw(self, surface, font_sm, font_md):
         if self.title_font is None:
             self.title_font = pygame.font.SysFont("dejavusans,arial,sans-serif", self.title_size, bold=True)
@@ -143,7 +159,10 @@ class Menu:
         for index, button in enumerate(self.buttons):
             button.draw(surface, font_md, index == self.selected)
 
-        hint = font_sm.render("Mouse or W/S + Enter", True, HINT_COLOR)
+        hint_str = "Mouse  |  W/S + Enter  |  Stick/D-Pad + (A)"
+        if self.back_action is not None:
+            hint_str += "  |  Esc / (B) = Back"
+        hint = font_sm.render(hint_str, True, HINT_COLOR)
         surface.blit(hint, hint.get_rect(midtop=(center_x, self.panel.bottom + 10)))
 
 
@@ -215,16 +234,20 @@ def create_menus(screen_size, icons=None):
         ),
         "controls": Menu(
             "CONTROLS",
-            [("Back", "back", "coin")],
+            [
+                ("Mode: Auto (Both)", "cycle_input_mode", "gem"),
+                ("Back", "back", "coin"),
+            ],
             screen_size,
             lines=[
-                "Move:  A / D  or  Left / Right",
-                "Jump:  Space, W  or  Up",
-                "Drop through bridges:  S + Space",
-                "Climb ladders:  W / S  or  Up / Down",
-                "Attack:  J, Z, X, F, K  or  Left Click",
-                "Pause:  Esc  or  P",
-                "Restart level:  R",
+                "Move:  A/D, Arrows, Left Stick or D-Pad",
+                "Jump / Drop:  Space/W/(A)  |  Down + Space/(A)",
+                "Climb ladders:  W/S, Up/Down, Stick or D-Pad",
+                "Attack:  J/Z/X/Click  or  (X) / (B) / RB / RT",
+                "Pause:  Esc / P / Start   |   Restart:  R / Back",
+                "",
+                "Gamepad: Not connected (plug in anytime)",
+                "Input API: Auto (XInput + DirectInput)",
             ],
             icons=icons,
             back_action="back",
