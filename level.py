@@ -405,7 +405,9 @@ class Enemy:
             self.facing_right = player_rect.centerx > self.rect.centerx
             dist_x = abs(player_rect.centerx - self.rect.centerx)
             dist_y = abs(player_rect.centery - self.rect.centery)
-            if dist_x < 520 and dist_y < 180:
+            in_range = dist_x < 520 and dist_y < 180
+            # Always finish a shot once the bow is drawn so the archer never freezes mid-aim.
+            if in_range or self.shoot_cooldown < 55:
                 self.shoot_cooldown -= 1
                 if self.shoot_cooldown <= 0:
                     self.shoot_cooldown = 105
@@ -443,25 +445,45 @@ class Enemy:
             self.facing_right = False
 
     def _resume_patrol(self) -> None:
-        """Goes back to patrolling in the direction the enemy is facing."""
+        """Goes back to patrolling, turning inward if sitting at a patrol limit."""
         self.state = "patrol"
+        if self.rect.left <= self.patrol_min_x:
+            self.facing_right = True
+        elif self.rect.right >= self.patrol_max_x:
+            self.facing_right = False
         if self.facing_right:
             self.vel_x = abs(self.speed)
         else:
             self.vel_x = -abs(self.speed)
 
     def _on_same_floor(self, player_rect: pygame.Rect) -> bool:
-        """Returns True when the player stands at about the same height as the enemy's feet."""
-        return abs(player_rect.bottom - self.rect.bottom) <= 80
+        """Returns True when the player stands on the same floor (including short jumps)."""
+        dy = self.rect.bottom - player_rect.bottom
+        return -24 <= dy <= 80
 
     def _gap_to(self, player_rect: pygame.Rect) -> int:
         """Returns the sideways distance between the edges of the enemy and the player."""
-        return abs(player_rect.centerx - self.rect.centerx) - (self.rect.width + player_rect.width) // 2
+        if player_rect.centerx >= self.rect.centerx:
+            return player_rect.left - self.rect.right
+        return self.rect.left - player_rect.right
+
+    def _can_reach(self, player_rect: pygame.Rect) -> bool:
+        """Returns True when the player is reachable from within this enemy's patrol limits."""
+        if self.windup_frames > 0:
+            return (
+                player_rect.right >= self.patrol_min_x - self.attack_range
+                and player_rect.left <= self.patrol_max_x + self.attack_range
+            )
+        return player_rect.right > self.patrol_min_x and player_rect.left < self.patrol_max_x
 
     def _update_walker(self, player_rect: pygame.Rect) -> None:
         """Updates slimes, goblin warriors and goblin brutes."""
         if self.state == "patrol":
-            noticed = self._on_same_floor(player_rect) and self._gap_to(player_rect) <= self.detect_range
+            noticed = (
+                self._on_same_floor(player_rect)
+                and self._can_reach(player_rect)
+                and self._gap_to(player_rect) <= self.detect_range
+            )
             if self.detect_range > 0 and noticed:
                 self.state = "chase"
             else:
@@ -469,26 +491,44 @@ class Enemy:
                 return
 
         if self.state == "chase":
-            # Once the enemy has noticed the player it keeps chasing a bit longer.
-            lost = not self._on_same_floor(player_rect) or self._gap_to(player_rect) > self.detect_range * 1.3
+            # Once the enemy has noticed the player it keeps chasing a bit longer,
+            # unless the player moves onto another floor or beyond its patrol reach.
+            lost = (
+                not self._on_same_floor(player_rect)
+                or not self._can_reach(player_rect)
+                or self._gap_to(player_rect) > self.detect_range * 1.3
+            )
             if lost:
                 self._resume_patrol()
+                self._patrol()
                 return
-            self.facing_right = player_rect.centerx > self.rect.centerx
+            dx = player_rect.centerx - self.rect.centerx
             gap = self._gap_to(player_rect)
-            if self.windup_frames > 0 and gap <= self.attack_range:
-                self.state = "windup"
-                self.state_timer = self.windup_frames
-            elif gap > 4:
-                if self.facing_right:
-                    self.rect.x += self.chase_speed
-                else:
-                    self.rect.x -= self.chase_speed
-                # Stay inside the patrol area so enemies never walk off a ledge.
-                if self.rect.left < self.patrol_min_x:
-                    self.rect.left = self.patrol_min_x
-                elif self.rect.right > self.patrol_max_x:
-                    self.rect.right = self.patrol_max_x
+            if self.windup_frames > 0:
+                if dx != 0:
+                    self.facing_right = dx > 0
+                if gap <= self.attack_range:
+                    self.state = "windup"
+                    self.state_timer = self.windup_frames
+                    return
+            else:
+                # Contact chasers (slimes) charge through the player before turning around.
+                if abs(dx) > 12:
+                    self.facing_right = dx > 0
+
+            if self.facing_right:
+                self.rect.x += self.chase_speed
+            else:
+                self.rect.x -= self.chase_speed
+            # Stay inside the patrol area so enemies never walk off a ledge.
+            if self.rect.left < self.patrol_min_x:
+                self.rect.left = self.patrol_min_x
+                if self.windup_frames == 0:
+                    self.facing_right = True
+            elif self.rect.right > self.patrol_max_x:
+                self.rect.right = self.patrol_max_x
+                if self.windup_frames == 0:
+                    self.facing_right = False
             return
 
         # windup -> strike -> recover -> chase
@@ -518,9 +558,23 @@ class Enemy:
             self.rect.y = self._hover_y()
             dx = abs(player_rect.centerx - self.rect.centerx)
             dy = player_rect.centery - self.rect.centery
-            if self.attack_cooldown == 0 and dx <= self.detect_range and dy >= -60 and dy <= 230:
-                # The dive target is fixed when the dive starts, so the player can dodge it.
-                self.swoop_target = player_rect.center
+            in_patrol_reach = (
+                player_rect.right >= self.patrol_min_x
+                and player_rect.left <= self.patrol_max_x
+            )
+            if (
+                self.attack_cooldown == 0
+                and in_patrol_reach
+                and dx <= self.detect_range
+                and -60 <= dy <= 230
+            ):
+                # Clamp dive target inside the patrol limits so the bat never stalls on the edge.
+                half_w = self.rect.width // 2
+                target_x = max(
+                    self.patrol_min_x + half_w,
+                    min(self.patrol_max_x - half_w, player_rect.centerx),
+                )
+                self.swoop_target = (target_x, player_rect.centery)
                 self.state = "swoop"
                 self.state_timer = 50
             return
@@ -531,29 +585,35 @@ class Enemy:
             dy = ty - self.rect.centery
             dist = math.sqrt(dx * dx + dy * dy)
             self.state_timer -= 1
-            if dist <= 6 or self.state_timer <= 0:
+            if dist <= self.swoop_speed or self.state_timer <= 0:
+                self.vel_x = abs(self.speed) if self.facing_right else -abs(self.speed)
                 self.state = "return"
                 return
-            self.facing_right = dx > 0
+            if dx != 0:
+                self.facing_right = dx > 0
+            prev_pos = self.rect.topleft
             self.rect.x += int(round(dx / dist * self.swoop_speed))
             self.rect.y += int(round(dy / dist * self.swoop_speed))
             if self.rect.left < self.patrol_min_x:
                 self.rect.left = self.patrol_min_x
             elif self.rect.right > self.patrol_max_x:
                 self.rect.right = self.patrol_max_x
+            if self.rect.topleft == prev_pos:
+                self.vel_x = abs(self.speed) if self.facing_right else -abs(self.speed)
+                self.state = "return"
             return
 
         # return: fly back up to the normal height, then patrol again.
         self._patrol()
         diff = self._hover_y() - self.rect.y
-        if abs(diff) <= 3:
+        if abs(diff) <= 5:
             self.rect.y = self._hover_y()
             self.attack_cooldown = self.swoop_cooldown
             self._resume_patrol()
         elif diff > 0:
-            self.rect.y += 3
+            self.rect.y += 5
         else:
-            self.rect.y -= 3
+            self.rect.y -= 5
 
     def draw(self, surface: pygame.Surface, camera_x: int) -> None:
         if self.dead:
