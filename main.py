@@ -253,9 +253,11 @@ def handle_level_interactions(
             continue
 
         # Check stomps and contact damage.
+        stomped = False
         if player.rect.colliderect(enemy.rect):
             is_stomp = player.vel_y > 0 and (player.rect.bottom - player.vel_y) <= enemy.rect.top + 22
             if is_stomp:
+                stomped = True
                 player.vel_y = -10.8
                 player.on_ground = False
                 defeated = enemy.take_hit(1)
@@ -277,6 +279,20 @@ def handle_level_interactions(
                             duration=16,
                         )
                     )
+
+        # Check enemy weapon swings (they reach further than the enemy's body).
+        weapon_rect = enemy.get_attack_rect()
+        if weapon_rect and not stomped and player.rect.colliderect(weapon_rect):
+            kb = -1 if player.rect.centerx < enemy.rect.centerx else 1
+            if player.take_damage(enemy.attack_damage, knockback_dir=kb):
+                level.particles.append(
+                    VFXParticle(
+                        player.rect.centerx,
+                        player.rect.centery,
+                        image=assets.vfx["hit_burst"],
+                        duration=16,
+                    )
+                )
 
     # Projectiles.
     active_solids = level.get_active_solid_rects()
