@@ -284,6 +284,27 @@ class Enemy:
         self.dead_timer = 90
         self.shoot_cooldown = 90
 
+        # AI state. Walking enemies go patrol, chase, windup, strike, recover.
+        # Bats go patrol, swoop, return.
+        self.state = "patrol"
+        self.state_timer = 0
+        self.attack_cooldown = 0
+        self.swoop_target = (x, y)
+
+        # AI settings in pixels and frames (60 frames = 1 second).
+        # Enemies that cannot chase or attack keep these defaults.
+        self.detect_range = 0  # how far away the enemy notices the player
+        self.chase_speed = 0
+        self.reach = 0  # how far the weapon reaches in front of the enemy
+        self.hit_height = 0  # height of the weapon hitbox, measured up from the feet
+        self.windup_frames = 0  # raised weapon, the player can dodge
+        self.strike_frames = 0  # the weapon can hurt the player
+        self.recover_frames = 0  # the enemy cannot attack after a swing
+        self.attack_damage = 1
+        self.interruptible = True  # False: hitting the enemy cannot cancel its swing
+        self.swoop_speed = 0
+        self.swoop_cooldown = 0
+
         if kind == "slime":
             self.rect = pygame.Rect(x, y - 42, 48, 42)
             self.speed = 1.6
@@ -291,6 +312,8 @@ class Enemy:
             self.max_hp = 1
             self.score_value = 150
             self.sprites_faces_right_natively = False
+            self.detect_range = 220
+            self.chase_speed = 4
         elif kind == "bat":
             self.rect = pygame.Rect(x, y - 44, 62, 40)
             self.speed = 2.4
@@ -298,6 +321,9 @@ class Enemy:
             self.max_hp = 1
             self.score_value = 200
             self.sprites_faces_right_natively = True
+            self.detect_range = 320
+            self.swoop_speed = 6
+            self.swoop_cooldown = 110
         elif kind == "goblin_warrior":
             self.rect = pygame.Rect(x, y - 60, 44, 60)
             self.speed = 2.1
@@ -305,6 +331,14 @@ class Enemy:
             self.max_hp = 2
             self.score_value = 300
             self.sprites_faces_right_natively = True
+            self.detect_range = 300
+            self.chase_speed = 4
+            self.attack_damage = 2
+            self.reach = 56
+            self.hit_height = 52
+            self.windup_frames = 24
+            self.strike_frames = 10
+            self.recover_frames = 50
         elif kind == "goblin_archer":
             self.rect = pygame.Rect(x, y - 60, 44, 60)
             self.speed = 0.0
@@ -319,6 +353,15 @@ class Enemy:
             self.max_hp = 4
             self.score_value = 800
             self.sprites_faces_right_natively = True
+            self.detect_range = 340
+            self.chase_speed = 3
+            self.reach = 84
+            self.hit_height = 56
+            self.windup_frames = 40
+            self.strike_frames = 14
+            self.recover_frames = 70
+            self.attack_damage = 3
+            self.interruptible = False
         else:
             self.rect = pygame.Rect(x, y - 54, 42, 54)
             self.speed = 1.8
@@ -328,6 +371,8 @@ class Enemy:
             self.sprites_faces_right_natively = True
 
         self.vel_x = self.speed
+        # The enemy starts a swing when the player is closer than this.
+        self.attack_range = self.reach - 12
 
     def take_hit(self, damage: int = 1) -> bool:
         """Deals damage to this enemy. Returns True if defeated."""
@@ -335,6 +380,10 @@ class Enemy:
             return False
         self.hp -= damage
         self.hurt_timer = 14
+        # A hit cancels a swing, so fighting back works (except against the brute).
+        if self.interruptible and self.state in ("windup", "strike"):
+            self.state = "recover"
+            self.state_timer = 30
         if self.hp <= 0:
             self.dead = True
             self.dead_timer = 75
@@ -367,7 +416,22 @@ class Enemy:
                     projectiles.append(Projectile(ax, ay, direction, arrow_img))
             return
 
-        # Patrol between the horizontal limits.
+        if self.kind == "bat":
+            self._update_bat(player_rect)
+        else:
+            self._update_walker(player_rect)
+
+    def get_attack_rect(self) -> pygame.Rect | None:
+        """Returns the weapon hitbox while the enemy is swinging, otherwise None."""
+        if self.dead or self.state != "strike":
+            return None
+        top = self.rect.bottom - self.hit_height
+        if self.facing_right:
+            return pygame.Rect(self.rect.right - 6, top, self.reach, self.hit_height)
+        return pygame.Rect(self.rect.left - self.reach + 6, top, self.reach, self.hit_height)
+
+    def _patrol(self) -> None:
+        """Walks back and forth between the horizontal limits."""
         self.rect.x += int(round(self.vel_x))
         if self.rect.left <= self.patrol_min_x:
             self.rect.left = self.patrol_min_x
@@ -378,8 +442,118 @@ class Enemy:
             self.vel_x = -abs(self.speed)
             self.facing_right = False
 
-        if self.kind == "bat":
-            self.rect.y = int(self.base_y - 44 + math.sin(self.anim_timer * 1.8) * 18)
+    def _resume_patrol(self) -> None:
+        """Goes back to patrolling in the direction the enemy is facing."""
+        self.state = "patrol"
+        if self.facing_right:
+            self.vel_x = abs(self.speed)
+        else:
+            self.vel_x = -abs(self.speed)
+
+    def _on_same_floor(self, player_rect: pygame.Rect) -> bool:
+        """Returns True when the player stands at about the same height as the enemy's feet."""
+        return abs(player_rect.bottom - self.rect.bottom) <= 80
+
+    def _gap_to(self, player_rect: pygame.Rect) -> int:
+        """Returns the sideways distance between the edges of the enemy and the player."""
+        return abs(player_rect.centerx - self.rect.centerx) - (self.rect.width + player_rect.width) // 2
+
+    def _update_walker(self, player_rect: pygame.Rect) -> None:
+        """Updates slimes, goblin warriors and goblin brutes."""
+        if self.state == "patrol":
+            noticed = self._on_same_floor(player_rect) and self._gap_to(player_rect) <= self.detect_range
+            if self.detect_range > 0 and noticed:
+                self.state = "chase"
+            else:
+                self._patrol()
+                return
+
+        if self.state == "chase":
+            # Once the enemy has noticed the player it keeps chasing a bit longer.
+            lost = not self._on_same_floor(player_rect) or self._gap_to(player_rect) > self.detect_range * 1.3
+            if lost:
+                self._resume_patrol()
+                return
+            self.facing_right = player_rect.centerx > self.rect.centerx
+            gap = self._gap_to(player_rect)
+            if self.windup_frames > 0 and gap <= self.attack_range:
+                self.state = "windup"
+                self.state_timer = self.windup_frames
+            elif gap > 4:
+                if self.facing_right:
+                    self.rect.x += self.chase_speed
+                else:
+                    self.rect.x -= self.chase_speed
+                # Stay inside the patrol area so enemies never walk off a ledge.
+                if self.rect.left < self.patrol_min_x:
+                    self.rect.left = self.patrol_min_x
+                elif self.rect.right > self.patrol_max_x:
+                    self.rect.right = self.patrol_max_x
+            return
+
+        # windup -> strike -> recover -> chase
+        self.state_timer -= 1
+        if self.state_timer > 0:
+            return
+        if self.state == "windup":
+            self.state = "strike"
+            self.state_timer = self.strike_frames
+        elif self.state == "strike":
+            self.state = "recover"
+            self.state_timer = self.recover_frames
+        else:
+            self.state = "chase"
+
+    def _hover_y(self) -> int:
+        """Returns the height of the bat while it floats up and down."""
+        return int(self.base_y - 44 + math.sin(self.anim_timer * 1.8) * 18)
+
+    def _update_bat(self, player_rect: pygame.Rect) -> None:
+        """Updates bats: they float around, dive at the player, then fly back up."""
+        if self.attack_cooldown > 0:
+            self.attack_cooldown -= 1
+
+        if self.state == "patrol":
+            self._patrol()
+            self.rect.y = self._hover_y()
+            dx = abs(player_rect.centerx - self.rect.centerx)
+            dy = player_rect.centery - self.rect.centery
+            if self.attack_cooldown == 0 and dx <= self.detect_range and dy >= -60 and dy <= 230:
+                # The dive target is fixed when the dive starts, so the player can dodge it.
+                self.swoop_target = player_rect.center
+                self.state = "swoop"
+                self.state_timer = 50
+            return
+
+        if self.state == "swoop":
+            tx, ty = self.swoop_target
+            dx = tx - self.rect.centerx
+            dy = ty - self.rect.centery
+            dist = math.sqrt(dx * dx + dy * dy)
+            self.state_timer -= 1
+            if dist <= 6 or self.state_timer <= 0:
+                self.state = "return"
+                return
+            self.facing_right = dx > 0
+            self.rect.x += int(round(dx / dist * self.swoop_speed))
+            self.rect.y += int(round(dy / dist * self.swoop_speed))
+            if self.rect.left < self.patrol_min_x:
+                self.rect.left = self.patrol_min_x
+            elif self.rect.right > self.patrol_max_x:
+                self.rect.right = self.patrol_max_x
+            return
+
+        # return: fly back up to the normal height, then patrol again.
+        self._patrol()
+        diff = self._hover_y() - self.rect.y
+        if abs(diff) <= 3:
+            self.rect.y = self._hover_y()
+            self.attack_cooldown = self.swoop_cooldown
+            self._resume_patrol()
+        elif diff > 0:
+            self.rect.y += 3
+        else:
+            self.rect.y -= 3
 
     def draw(self, surface: pygame.Surface, camera_x: int) -> None:
         if self.dead:
@@ -406,7 +580,15 @@ class Enemy:
             frame = frames[int(self.anim_timer * 1.5) % len(frames)]
         elif self.kind == "goblin_warrior":
             frames = self.assets.enemies["goblin_warrior_walk"]
-            frame = frames[int(self.anim_timer) % len(frames)]
+            attack_frames = self.assets.enemies["goblin_warrior_attack"]
+            if self.state == "windup":
+                frame = attack_frames[0]  # sword raised
+            elif self.state == "strike":
+                frame = attack_frames[1]  # sword swung
+            elif self.state == "recover":
+                frame = frames[0]  # standing still
+            else:
+                frame = frames[int(self.anim_timer) % len(frames)]
             if not self.facing_right:
                 frame = pygame.transform.flip(frame, True, False)
         elif self.kind == "goblin_archer":
@@ -421,7 +603,12 @@ class Enemy:
                 frame = pygame.transform.flip(frame, True, False)
         elif self.kind == "goblin_brute":
             frames = self.assets.enemies["goblin_brute"]
-            frame = frames[int(self.anim_timer * 0.9) % len(frames)]
+            if self.state == "windup":
+                frame = frames[1]  # club raised
+            elif self.state == "strike":
+                frame = frames[2]  # club smashed down
+            else:
+                frame = frames[0]
             if not self.facing_right:
                 frame = pygame.transform.flip(frame, True, False)
         else:
@@ -433,6 +620,13 @@ class Enemy:
         draw_x = self.rect.centerx - frame.get_width() // 2 - camera_x
         draw_y = self.rect.bottom - frame.get_height()
         surface.blit(frame, (draw_x, draw_y))
+
+        # Red "!" above the head warns the player that a hit is coming.
+        if self.state == "windup":
+            mark_x = self.rect.centerx - camera_x
+            mark_y = draw_y - 32
+            pygame.draw.rect(surface, (235, 55, 55), (mark_x - 3, mark_y, 6, 11), border_radius=2)
+            pygame.draw.rect(surface, (235, 55, 55), (mark_x - 3, mark_y + 14, 6, 6), border_radius=3)
 
         # Show health for damaged multi-HP enemies.
         if self.max_hp > 1 and (self.hp < self.max_hp or self.kind == "goblin_brute"):
