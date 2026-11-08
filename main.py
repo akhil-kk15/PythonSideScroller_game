@@ -1,5 +1,6 @@
 """Start the game and run its main loop."""
 
+import argparse
 import os
 import sys
 import pygame
@@ -10,6 +11,7 @@ from level import AssetLibrary, Collectible, Level, VFXParticle
 from ui import MenuCharacter, create_menus, load_icons
 from story import create_stories
 from highscores import add_highscore, best_score_text, highscore_lines, load_highscores
+from joystick import MODE_AUTO, MODES, Gamepad, configure_sdl_hints
 
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
@@ -24,6 +26,7 @@ def draw_hud(
     font_sm: pygame.font.Font,
     font_md: pygame.font.Font,
     font_lg: pygame.font.Font,
+    gamepad: Gamepad | None = None,
 ) -> None:
     """Draw the HUD."""
     # HUD background.
@@ -79,8 +82,18 @@ def draw_hud(
     surface.blit(score_txt, (SCREEN_WIDTH - 210, 16))
 
     # Controls.
+    if gamepad is not None and gamepad.is_connected():
+        controls_hint = (
+            "Move: Stick/D-Pad or A/D | Jump: (A)/Space | Climb: Up/Down | "
+            "Attack: (X)/(B)/RB/RT | Restart: Back/R | Pause: Start/Esc"
+        )
+    else:
+        controls_hint = (
+            "Move: A/D or Arrows | Jump: Space/W | Climb: W/S | "
+            "Attack: J/Z/Click | Restart: R | Pause: Esc/P"
+        )
     ctrl_txt = font_sm.render(
-        "Move: A/D or Arrows | Jump: Space/W | Climb: W/S | Attack: J/Z/Click | Restart: R | Pause: Esc/P",
+        controls_hint,
         True,
         (215, 225, 240),
     )
@@ -373,12 +386,14 @@ def load_level(level_num: int, assets: AssetLibrary, player: Player) -> Level:
     return level
 
 
-def run_game(max_frames: int | None = None) -> None:
+def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) -> None:
     """Initializes Pygame, slices sprite sheets if needed, and runs the main game loop."""
+    configure_sdl_hints(controller_mode)
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     pygame.display.set_caption("Knight's Quest - The Stolen Crown")
     clock = pygame.time.Clock()
+    gamepad = Gamepad(mode=controller_mode)
 
     # Slice sprite sheets when needed.
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -425,20 +440,79 @@ def run_game(max_frames: int | None = None) -> None:
     level_start_stats = (0, 0, 0)
     level_skip_used = False  # True after 1/2 was pressed; then no highscore
 
+    def refresh_controls_menu() -> None:
+        menus["controls"].lines[-2] = gamepad.status_line()
+        menus["controls"].lines[-1] = gamepad.mode_line()
+        menus["controls"].buttons[0].text = gamepad.mode_button_text()
+
     def open_menu(name: str) -> str:
         menus[name].reset()
         if name == "menu":
             # Second line of the main menu shows the best score so far.
             menus["menu"].lines[1] = best_score_text(highscore_path)
+        elif name == "controls":
+            refresh_controls_menu()
         return name
+
+    def apply_menu_action(action: str | None) -> bool:
+        """Execute a menu button action. Returns True if game_state changed."""
+        nonlocal current_level_num, level, player, level_start_stats, level_skip_used
+        nonlocal camera_x, current_story, story_next_state, game_state
+        nonlocal controls_return_state, running
+        if action is None:
+            return False
+        if action == "start":
+            current_level_num = 1
+            level, player = new_game(assets, player_sprites)
+            level_start_stats = (0, 0, 0)
+            level_skip_used = False
+            camera_x = 0.0
+            # Show the intro story first, then start playing.
+            current_story = stories["intro"]
+            current_story.reset()
+            story_next_state = "playing"
+            game_state = "story"
+            return True
+        if action == "resume":
+            game_state = "playing"
+            return True
+        if action == "restart_level":
+            level = load_level(current_level_num, assets, player)
+            set_stats(player, level_start_stats)
+            game_state = "playing"
+            return True
+        if action == "controls":
+            controls_return_state = game_state
+            game_state = open_menu("controls")
+            return True
+        if action == "cycle_input_mode":
+            gamepad.cycle_mode()
+            refresh_controls_menu()
+            return False
+        if action == "back":
+            game_state = open_menu(controls_return_state)
+            return True
+        if action == "main_menu":
+            game_state = open_menu("menu")
+            return True
+        if action == "quit":
+            running = False
+            return True
+        return False
 
     game_state = open_menu("menu")
 
     running = True
     while running:
+        state_changed_by_event = False
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+                continue
+
+            if gamepad.handle_event(event):
+                if game_state == "controls":
+                    refresh_controls_menu()
                 continue
 
             if game_state == "story":
@@ -447,46 +521,25 @@ def run_game(max_frames: int | None = None) -> None:
                         game_state = "playing"
                     else:
                         game_state = open_menu(story_next_state)
+                    state_changed_by_event = True
                 continue
 
             if game_state != "playing":
                 # Menus get all input while they are open.
                 action = menus[game_state].handle_event(event)
-                if action == "start":
-                    current_level_num = 1
-                    level, player = new_game(assets, player_sprites)
-                    level_start_stats = (0, 0, 0)
-                    level_skip_used = False
-                    camera_x = 0.0
-                    # Show the intro story first, then start playing.
-                    current_story = stories["intro"]
-                    current_story.reset()
-                    story_next_state = "playing"
-                    game_state = "story"
-                elif action == "resume":
-                    game_state = "playing"
-                elif action == "restart_level":
-                    level = load_level(current_level_num, assets, player)
-                    set_stats(player, level_start_stats)
-                    game_state = "playing"
-                elif action == "controls":
-                    controls_return_state = game_state
-                    game_state = open_menu("controls")
-                elif action == "back":
-                    game_state = open_menu(controls_return_state)
-                elif action == "main_menu":
-                    game_state = open_menu("menu")
-                elif action == "quit":
-                    running = False
+                if apply_menu_action(action):
+                    state_changed_by_event = True
                 continue
 
             # Gameplay input.
             if event.type == pygame.WINDOWFOCUSLOST:
                 # Pause automatically when the player switches to another window.
                 game_state = open_menu("paused")
+                state_changed_by_event = True
             elif event.type == pygame.KEYDOWN:
                 if event.key in (pygame.K_ESCAPE, pygame.K_p):
                     game_state = open_menu("paused")
+                    state_changed_by_event = True
                 elif event.key == pygame.K_SPACE:
                     player.trigger_jump()
                 elif event.key in (pygame.K_w, pygame.K_UP):
@@ -506,6 +559,29 @@ def run_game(max_frames: int | None = None) -> None:
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 player.trigger_attack()
 
+        # Poll controller state once per frame and dispatch discrete actions.
+        gamepad.update()
+        if running and not state_changed_by_event:
+            if game_state == "story":
+                if current_story.handle_gamepad(gamepad) == "done":
+                    if story_next_state == "playing":
+                        game_state = "playing"
+                    else:
+                        game_state = open_menu(story_next_state)
+            elif game_state != "playing":
+                apply_menu_action(menus[game_state].handle_gamepad(gamepad))
+            else:
+                if gamepad.pause:
+                    game_state = open_menu("paused")
+                else:
+                    if gamepad.jump:
+                        player.trigger_jump()
+                    if gamepad.attack:
+                        player.trigger_attack()
+                    if gamepad.restart:
+                        level = load_level(current_level_num, assets, player)
+                        set_stats(player, level_start_stats)
+
         if game_state == "playing":
             keys = pygame.key.get_pressed()
             move_events = player.update(
@@ -515,6 +591,7 @@ def run_game(max_frames: int | None = None) -> None:
                 level.ladder_rects,
                 level.slope_tiles,
                 level.width,
+                gamepad=gamepad,
             )
             if move_events["jumped"]:
                 level.particles.append(
@@ -588,7 +665,7 @@ def run_game(max_frames: int | None = None) -> None:
             player.draw(screen, cam_int)
             for p in level.particles:
                 p.draw(screen, cam_int, font_sm)
-            draw_hud(screen, player, level, assets, font_sm, font_md, font_lg)
+            draw_hud(screen, player, level, assets, font_sm, font_md, font_lg, gamepad=gamepad)
 
         if game_state not in ("playing", "story"):
             menu = menus[game_state]
@@ -604,8 +681,21 @@ def run_game(max_frames: int | None = None) -> None:
         if max_frames is not None and frame_count >= max_frames:
             running = False
 
+    gamepad.quit()
     pygame.quit()
 
 
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Knight's Quest - The Stolen Crown")
+    parser.add_argument(
+        "--controller-mode",
+        choices=MODES,
+        default=MODE_AUTO,
+        help="Controller input backend/mapping mode (default: auto accepts both XInput and DirectInput).",
+    )
+    return parser.parse_args(argv)
+
+
 if __name__ == "__main__":
-    run_game()
+    args = parse_args()
+    run_game(controller_mode=args.controller_mode)
