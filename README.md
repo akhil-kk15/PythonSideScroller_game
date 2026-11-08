@@ -64,6 +64,14 @@ python main.py
 If the virtual environment is not activated, use `.venv/bin/python main.py` on
 Linux/macOS or `.venv\Scripts\python.exe main.py` on Windows.
 
+You can also pre-select the controller input backend from the command line on
+Linux, Windows, or macOS (`auto`, `xinput`, or `directinput`; default `auto`
+accepts both XInput and DirectInput):
+
+```bash
+python main.py --controller-mode auto
+```
+
 ## Story: The Stolen Crown
 
 Goblins have stolen the Golden Crown of the kingdom and carried it to their
@@ -73,17 +81,22 @@ gate, then into the Goblin Stronghold (level 2), guarded by archers and the
 Goblin Brute.
 
 Short illustrated story scenes are shown before level 1, before level 2 and
-after the last level (`story.py`). `Enter` or the Continue button goes to the
-next page, `Esc` skips the story.
+after the last level (`story.py`). `Enter`, `(A)`, or the Continue button goes
+to the next page; `Esc`, `(B)`, or `Start` skips the story.
 
 ## Menus
 
 The game starts in the main menu (Start Game, Controls, Quit). All menus work
-with the mouse or with `W` / `S` (or the arrow keys) and `Enter`.
+with the mouse, with `W` / `S` (or the arrow keys) and `Enter`, or with a
+controller's Left Stick / D-Pad and `(A)` (`(B)` for Back).
 
-- **Pause menu:** `Esc` or `P` during the game. It offers Resume, Restart
-  Level, Controls, Main Menu, and Quit Game. `Esc` closes it again. The game
-  also pauses automatically when the window loses focus.
+- **Pause menu:** `Esc`, `P`, or `Start` during the game. It offers Resume, Restart
+  Level, Controls, Main Menu, and Quit Game. `Esc`, `(B)`, or `Start` closes it
+  again. The game also pauses automatically when the window loses focus.
+- **Controls menu:** shows keyboard and Xbox/gamepad bindings, displays live
+  controller connection status, and lets you switch the controller input API
+  between **Auto (XInput + DirectInput)**, **XInput**, and **DirectInput** on
+  Linux, Windows, and macOS.
 - **Game over / victory:** shows the final score and the top 5 highscores with
   Play Again, Main Menu, and Quit.
 - **Highscores:** every finished game is saved in `highscores.txt` next to
@@ -91,6 +104,8 @@ with the mouse or with `W` / `S` (or the arrow keys) and `Enter`.
   best score. Delete the file to reset the list.
 
 ## Controls
+
+### Keyboard & Mouse
 
 - **Move left/right:** `A` / `D` or the left/right arrow keys
 - **Jump:** `Space`, `W`, or the up arrow
@@ -102,6 +117,24 @@ with the mouse or with `W` / `S` (or the arrow keys) and `Enter`.
 - **Restart level:** `R` or `Enter` (score, coins and gems go back to the
   values from the start of the level)
 - **Pause:** `Esc` or `P`
+
+### Xbox / Gamepad Controller (XInput & DirectInput — Linux, Windows, macOS)
+
+Controllers can be plugged in or connected wirelessly at any time (hot-plugging
+is supported):
+
+- **Move left/right:** Left Stick or D-Pad Left / Right
+- **Jump:** `A` or `LB` (hold for a full jump, tap for a short hop)
+- **Drop through bridges:** hold Down (Left Stick or D-Pad) and press `A`
+- **Climb ladders:** Left Stick Up / Down or D-Pad Up / Down
+- **Attack:** `X`, `B`, `Y`, `RB`, or `RT` (Right Trigger)
+- **Restart level:** `Back` / `View` (Select)
+- **Pause / Resume:** `Start` / `Menu`
+- **Menus & Story:** Left Stick / D-Pad to navigate, `A` to confirm/continue,
+  `B` to go back or skip story scenes
+- **XInput / DirectInput mode:** defaults to **Auto (XInput + DirectInput)** and
+  can be switched live in **Controls -> Mode** or at launch with
+  `--controller-mode {auto,xinput,directinput}`
 
 ## Test the project
 

@@ -196,6 +196,7 @@ class Player:
         ladder_rects: list[pygame.Rect],
         slope_tiles: list[tuple[pygame.Rect, str]],
         level_width: int,
+        gamepad=None,
     ) -> dict[str, bool]:
         """Update movement, collisions, animations, and jump/land events."""
         events = {"jumped": False, "landed": False}
@@ -212,11 +213,11 @@ class Player:
             if self.attack_timer <= 0:
                 self.attacking = False
 
-        # Read movement input.
-        move_left = keys[pygame.K_LEFT] or keys[pygame.K_a]
-        move_right = keys[pygame.K_RIGHT] or keys[pygame.K_d]
-        move_up = keys[pygame.K_UP] or keys[pygame.K_w]
-        move_down = keys[pygame.K_DOWN] or keys[pygame.K_s]
+        # Read movement input (keyboard + optional controller).
+        move_left = keys[pygame.K_LEFT] or keys[pygame.K_a] or bool(gamepad and gamepad.move_left)
+        move_right = keys[pygame.K_RIGHT] or keys[pygame.K_d] or bool(gamepad and gamepad.move_right)
+        move_up = keys[pygame.K_UP] or keys[pygame.K_w] or bool(gamepad and gamepad.move_up)
+        move_down = keys[pygame.K_DOWN] or keys[pygame.K_s] or bool(gamepad and gamepad.move_down)
 
         # Check for a ladder and handle grabbing / staying on it.
         up_ladder = self.find_climbable_ladder_up(ladder_rects)
@@ -304,7 +305,7 @@ class Player:
                         for ow in one_way_rects
                     )
                     if on_one_way:
-                        self.rect.y += 6
+                        self.rect.y += 12
                         self.on_ground = False
                         self.coyote_timer = 0
                         self.jump_buffer_timer = 0
@@ -329,7 +330,12 @@ class Player:
                     events["jumped"] = True
 
         # Shorten the jump when the button is released.
-        jump_held = keys[pygame.K_SPACE] or keys[pygame.K_w] or keys[pygame.K_UP]
+        jump_held = (
+            keys[pygame.K_SPACE]
+            or keys[pygame.K_w]
+            or keys[pygame.K_UP]
+            or bool(gamepad and gamepad.jump_held)
+        )
         if not jump_held and self.vel_y < -4.5 and not self.on_ladder:
             self.vel_y *= 0.62
 

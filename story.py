@@ -184,6 +184,13 @@ class StoryScreen:
                 return "done"  # skip the whole story
         return None
 
+    def handle_gamepad(self, gamepad):
+        if gamepad.confirm:
+            return self.next_page()
+        if gamepad.back or gamepad.pause:
+            return "done"  # skip the whole story
+        return None
+
     def draw_stars(self, surface):
         time = pygame.time.get_ticks() / 600
         for x, y, phase in self.stars:
@@ -211,8 +218,11 @@ class StoryScreen:
 
         mouse_on_button = self.button.rect.collidepoint(pygame.mouse.get_pos())
         self.button.draw(surface, font_md, mouse_on_button)
-        hint = font_sm.render(f"Page {self.index + 1} / {len(self.pages)}     Enter = continue     Esc = skip",
-                              True, HINT_COLOR)
+        hint = font_sm.render(
+            f"Page {self.index + 1} / {len(self.pages)}     Enter / (A) = continue     Esc / (B) = skip",
+            True,
+            HINT_COLOR,
+        )
         surface.blit(hint, hint.get_rect(midtop=(center_x, self.button.rect.bottom + 10)))
 
 
