@@ -16,6 +16,7 @@ MUSIC_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", 
 
 _sounds: dict[str, list[pygame.mixer.Sound]] = {}
 _muted = False
+_music_on = False  # the game decides when the music should play (see set_music)
 _music_channel = None
 
 
@@ -78,7 +79,22 @@ def _start_music(channels):
     channel = pygame.mixer.Channel(0)
     channel.set_volume(0.0 if _muted else MUSIC_VOLUME)
     channel.play(pygame.mixer.Sound(MUSIC_FILE), loops=-1)
+    if not _music_on:
+        channel.pause()
     _music_channel = channel
+
+
+def set_music(on: bool) -> None:
+    """Turns the music on or off. It keeps its place in the tune while off."""
+    global _music_on
+    if on == _music_on:
+        return
+    _music_on = on
+    if _music_channel is not None:
+        if on:
+            _music_channel.unpause()
+        else:
+            _music_channel.pause()
 
 
 def init() -> None:
