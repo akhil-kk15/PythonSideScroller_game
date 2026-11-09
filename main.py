@@ -518,6 +518,12 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
 
             if titlebar.handle_event(event):
                 continue
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
+                try:
+                    pygame.display.toggle_fullscreen()
+                except pygame.error:
+                    pass  # this system cannot switch to fullscreen
+                continue
             shift_mouse_event(event)  # mouse positions are relative to the game, not the bar
 
             if gamepad.handle_event(event):
