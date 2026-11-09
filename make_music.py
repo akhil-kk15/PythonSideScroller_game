@@ -1,13 +1,4 @@
-"""Builds the background music and saves it to assets/music/theme.wav.
-
-The game loads that file at startup. You only need to run this script if you
-want to change the music:
-
-    python make_music.py
-
-The music is a calm loop of four chords (A minor, F, C, G), two bars each.
-Every chord has a bass note, a soft pad and a gentle arpeggio on top.
-"""
+"""Builds the background music and saves it to assets/music/theme.wav."""
 
 import array
 import math
@@ -18,8 +9,6 @@ SAMPLE_RATE = 22050
 BEATS_PER_MINUTE = 92
 OUTPUT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "music", "theme.wav")
 
-# Each chord is (bass note, pad notes). The melody plays the pad notes one
-# octave up.
 CHORDS = [
     (110.00, (220.00, 261.63, 329.63)),
     (87.31, (174.61, 220.00, 261.63)),
@@ -30,7 +19,7 @@ ARPEGGIOS = ([0, 1, 2, 1, 2, 1, 0, 1], [2, 1, 0, 1, 2, 1, 0, 2])
 
 
 def render_music():
-    """Returns one loop of music as a list of mono samples between -1 and 1."""
+    """Returns one loop of music as a list of samples."""
     beat = 60.0 / BEATS_PER_MINUTE
     bar = 4 * beat
     total = int(SAMPLE_RATE * bar * 2 * len(CHORDS))
@@ -44,12 +33,12 @@ def render_music():
             wave_value = math.sin(2 * math.pi * freq * t)
             if second_harmonic:
                 wave_value += second_harmonic * math.sin(4 * math.pi * freq * t)
-            buffer[(first + i) % total] += wave_value * envelope * volume  # wraps, so the loop is seamless
+            buffer[(first + i) % total] += wave_value * envelope * volume
 
-    def swell(t, length):  # slow fade out, for the pad
+    def swell(t, length):
         return min(1.0, (length - t) / 0.6)
 
-    def pluck(t, length):  # quick fade out, for the bass and melody
+    def pluck(t, length):
         return math.exp(-t * 5.0)
 
     for chord_index, (bass, pad) in enumerate(CHORDS):

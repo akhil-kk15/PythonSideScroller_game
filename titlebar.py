@@ -1,8 +1,4 @@
-"""A custom title bar with minimize and close buttons (the window has no frame).
-
-The bar sits above the game. Drag it to move the window (not possible in
-fullscreen mode).
-"""
+"""Title bar with minimize and close buttons."""
 
 import pygame
 
@@ -14,7 +10,7 @@ CLOSE_HOVER_COLOR = (200, 60, 60)
 
 
 def shift_mouse_event(event) -> None:
-    """Moves a mouse position down so that it is relative to the game area."""
+    """Moves mouse positions so they match the game area."""
     if hasattr(event, "pos"):
         event.pos = (event.pos[0], event.pos[1] - BAR_HEIGHT)
 
@@ -25,10 +21,10 @@ class TitleBar:
         self.minimize_rect = pygame.Rect(width - 2 * BUTTON_WIDTH, 0, BUTTON_WIDTH, BAR_HEIGHT)
         self.close_rect = pygame.Rect(width - BUTTON_WIDTH, 0, BUTTON_WIDTH, BAR_HEIGHT)
         self.rect = pygame.Rect(0, 0, width, BAR_HEIGHT)
-        self.drag_offset = None  # where inside the window the bar was grabbed
+        self.drag_offset = None
 
     def handle_event(self, event) -> bool:
-        """Handles clicks on the bar. Returns True when the event belongs to it."""
+        """Handles clicks on the bar. Returns True if the event was used."""
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.rect.collidepoint(event.pos):
             if self.close_rect.collidepoint(event.pos):
                 pygame.event.post(pygame.event.Event(pygame.QUIT))
