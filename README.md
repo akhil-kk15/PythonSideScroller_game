@@ -27,6 +27,8 @@ That is the whole pitch. If you've played a platformer before, you already know 
 | **Perspective** | 2D side-scrolling, 1280 × 720 at 60 FPS |
 | **Players** | One |
 | **Input** | Keyboard and mouse, or any gamepad |
+| **Audio** | Soft sound effects, quiet music on the menu and story screens, a victory fanfare. `M` mutes everything |
+| **Window** | Custom title bar (drag, minimize, close) and `F11` for fullscreen |
 | **Length** | Two levels, roughly five minutes a run |
 | **Target** | Windows, macOS and Linux, Python 3.10+ |
 
@@ -79,9 +81,9 @@ python3 -m venv .venv
 .venv/bin/python main.py
 ```
 
-No Git? Use **Code → Download ZIP**, unzip it, open a terminal in the folder that contains `main.py`, and run the last three lines.
-
 Next time, just run the last line. Everything else is already done. Sprites ship with the repository and are prepared automatically on first launch.
+
+**Already have the game? Update it.** Running `git clone` again will not update anything, and you will keep seeing the old version. Open a terminal in the game folder and run `git pull origin main`, then start the game as usual. Your saved highscores stay.
 
 ---
 
@@ -94,6 +96,8 @@ In each level, find the **Gold Key**, use it to open the **locked gate**, and wa
 ### 4.2 What you can do
 
 Move, jump (tap to hop, hold to go high), climb ladders, drop through wooden bridges, and swing the sword in a three-hit combo. The game is generous about timing: it remembers a jump you pressed slightly early and allows one you pressed slightly late. This is deliberate. Nobody has ever enjoyed missing a jump by two frames.
+
+**Sound.** Footsteps, sword swings, hits, coins and button clicks are all soft and low in the mix. Music plays on the main menu and on the story screens before a level, then steps aside so you can hear the game. A short fanfare plays when you win. Press `M` to mute everything.
 
 ### 4.3 How you lose
 
@@ -143,6 +147,8 @@ Pull a lever and three bonus gems appear. Your best five runs are saved, with th
 
 You can plug in a controller at any time, even mid-level.
 
+The bar at the top of the window has minimize and close buttons, and you can drag it to move the window. Press `F11` for fullscreen and `M` to mute the sound.
+
 <details>
 <summary><b>The in-game Controls screen</b></summary>
 <br>
@@ -181,6 +187,7 @@ We wrote these down so nobody has to guess what the game is supposed to do.
 | NFR-3 | run on Windows, macOS and Linux |
 | NFR-4 | need nothing beyond `pip install`; sprites are prepared automatically on first launch |
 | NFR-5 | forgive near-miss input (jump buffering and coyote time) |
+| NFR-6 | keep running, silently, if the computer has no audio device |
 
 ### 6.3 Not included
 
@@ -217,6 +224,8 @@ python slice_assets.py                         # re-slice assets/base.jpg, knigh
 
 Press `1` or `2` in-game to jump straight to a level (that run's score isn't saved). Delete `highscores.txt` to reset the leaderboard.
 
+To change the background music, edit `make_music.py` and run `python make_music.py`. It rewrites `assets/music/theme.wav`.
+
 ---
 
 ## 8. When Something Goes Wrong
@@ -230,7 +239,7 @@ Python isn't installed, or isn't on your `PATH`. Install Python 3.10+. On Window
 <details>
 <summary><b>"No such file or directory: requirements.txt" or "main.py"</b></summary>
 
-Your terminal isn't in the game folder. `cd PythonSideScroller_game` (or `PythonSideScroller_game-main` if you used the ZIP) and try again.
+Your terminal isn't in the game folder. `cd PythonSideScroller_game` and try again.
 </details>
 
 <details>
@@ -257,4 +266,16 @@ sudo apt update && sudo apt install -y python3-venv
 <summary><b>My controller does nothing, or the buttons feel swapped</b></summary>
 
 Open **Controls** from the main or pause menu, check the Gamepad status line, and click **Mode** to switch between Auto, XInput (Xbox-style) and DirectInput (classic USB or Bluetooth). Or launch with `--controller-mode xinput` or `--controller-mode directinput`.
+</details>
+
+<details>
+<summary><b>I still see the old version of the game</b></summary>
+
+`git clone` only works the first time. If the folder already exists, open a terminal inside it and run `git pull origin main`, then start the game again.
+</details>
+
+<details>
+<summary><b>I hear no sound</b></summary>
+
+Look at the first lines the game prints in the terminal. "Sound is on" means the game is playing audio, so check your Windows volume and output device, and that you have not pressed `M` (mute). "Sound is off" shows the reason, usually that no audio device could be opened. Music plays only on the main menu and story screens, not during levels.
 </details>
