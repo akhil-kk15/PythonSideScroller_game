@@ -33,9 +33,12 @@ def load_highscores(path):
 
 
 def save_highscores(path, entries):
-    with open(path, "w", encoding="utf-8") as file:
-        for entry in entries:
-            file.write(f"{entry['score']};{entry['level']};{entry['date']}\n")
+    try:
+        with open(path, "w", encoding="utf-8") as file:
+            for entry in entries:
+                file.write(f"{entry['score']};{entry['level']};{entry['date']}\n")
+    except OSError:
+        print("Could not save highscores:", path)
 
 
 def add_highscore(path, score, level):
