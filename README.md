@@ -166,6 +166,7 @@ We wrote these down so nobody has to guess what the game is supposed to do.
 | FR-7 | play animated story cutscenes before Level 1, before Level 2 and at the ending |
 | FR-8 | save a top-five leaderboard to `highscores.txt` |
 | FR-9 | support gamepads that can be plugged in at any time, in Auto, XInput or DirectInput mode |
+| FR-10 | show a custom title bar with minimize and close buttons, and let the player drag the window by it |
 
 ### 6.2 Non-functional
 
@@ -195,6 +196,7 @@ joystick.py     XInput and DirectInput controller support with hot-plug
 highscores.py   Persistent top-five leaderboard
 background.py   Parallax scrolling backgrounds
 animation.py    Sprite animation system
+titlebar.py     Custom title bar with minimize and close buttons
 slice_assets.py Cuts the master sprite sheets into individual PNGs
 assets/         Sprite sheets, sliced sprites and backgrounds
 ```

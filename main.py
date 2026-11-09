@@ -12,10 +12,12 @@ from ui import MenuCharacter, create_menus, load_icons
 from story import create_stories
 from highscores import add_highscore, best_score_text, highscore_lines, load_highscores
 from joystick import MODE_AUTO, MODES, Gamepad, configure_sdl_hints
+from titlebar import BAR_HEIGHT, TitleBar, shift_mouse_event
 
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
 FPS = 60
+WINDOW_TITLE = "Knight's Quest - The Stolen Crown"
 
 
 def draw_hud(
@@ -390,8 +392,12 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
     """Initializes Pygame, slices sprite sheets if needed, and runs the main game loop."""
     configure_sdl_hints(controller_mode)
     pygame.init()
-    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-    pygame.display.set_caption("Knight's Quest - The Stolen Crown")
+    # The window has no frame. The game is drawn on "screen", and the title bar
+    # is drawn above it when the frame is shown.
+    window = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT + BAR_HEIGHT), pygame.NOFRAME | pygame.SCALED)
+    screen = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+    pygame.display.set_caption(WINDOW_TITLE)
+    titlebar = TitleBar(SCREEN_WIDTH, WINDOW_TITLE)
     clock = pygame.time.Clock()
     gamepad = Gamepad(mode=controller_mode)
 
@@ -509,6 +515,10 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
             if event.type == pygame.QUIT:
                 running = False
                 continue
+
+            if titlebar.handle_event(event):
+                continue
+            shift_mouse_event(event)  # mouse positions are relative to the game, not the bar
 
             if gamepad.handle_event(event):
                 if game_state == "controls":
@@ -674,6 +684,8 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
                 menu_knight.draw(screen, (main_panel.left + 85, menu_feet_y))
                 menu_slime.draw(screen, (main_panel.right - 85, menu_feet_y))
 
+        window.blit(screen, (0, BAR_HEIGHT))
+        titlebar.draw(window, font_sm)
         pygame.display.flip()
         clock.tick(FPS)
 
