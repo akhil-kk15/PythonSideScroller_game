@@ -13,6 +13,7 @@ import random
 import pygame
 
 from ui import Button, MenuCharacter, draw_text_with_shadow, HIGHLIGHT_COLOR, TEXT_COLOR, HINT_COLOR
+from titlebar import BAR_HEIGHT
 
 FEET_Y = 440                     # where the figures stand
 BACKGROUND_COLOR = (14, 16, 26)
@@ -216,7 +217,8 @@ class StoryScreen:
             surface.blit(text, text.get_rect(midtop=(center_x, text_y)))
             text_y += 32
 
-        mouse_on_button = self.button.rect.collidepoint(pygame.mouse.get_pos())
+        mouse_x, mouse_y = pygame.mouse.get_pos()
+        mouse_on_button = self.button.rect.collidepoint((mouse_x, mouse_y - BAR_HEIGHT))
         self.button.draw(surface, font_md, mouse_on_button)
         hint = font_sm.render(
             f"Page {self.index + 1} / {len(self.pages)}     Enter / (A) = continue     Esc / (B) = skip",

@@ -4,6 +4,7 @@ import math
 import os
 import pygame
 
+import sounds
 from background import load_background
 
 TILE_SIZE = 64
@@ -379,6 +380,7 @@ class Enemy:
         if self.dead:
             return False
         self.hp -= damage
+        sounds.play("hit")
         self.hurt_timer = 14
         # A hit cancels a swing, so fighting back works (except against the brute).
         if self.interruptible and self.state in ("windup", "strike"):
