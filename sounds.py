@@ -1,4 +1,4 @@
-"""Small retro sound effects, synthesized in code (no audio files needed).
+"""Soft retro sound effects, synthesized in code (no audio files needed).
 
 Call init() once after pygame.init(). Then play("jump") anywhere. If the
 computer has no audio device, every call quietly does nothing.
@@ -10,44 +10,48 @@ import random
 
 import pygame
 
-VOLUME = 0.3
-
-_sounds: dict[str, pygame.mixer.Sound] = {}
+_sounds: dict[str, list[pygame.mixer.Sound]] = {}
 _muted = False
 
 
-def _square_notes(notes, sample_rate):
-    """Builds mono samples for notes given as (start_hz, end_hz, seconds)."""
+def _tone(notes, sample_rate, volume):
+    """Builds mono samples for soft notes given as (start_hz, end_hz, seconds)."""
     samples = array.array("h")
+    attack = max(1, int(sample_rate * 0.006))  # a quick fade-in avoids clicks
     for start_hz, end_hz, seconds in notes:
         count = int(sample_rate * seconds)
         phase = 0.0
         for i in range(count):
             progress = i / count
             phase += (start_hz + (end_hz - start_hz) * progress) / sample_rate
-            wave = 1.0 if (phase % 1.0) < 0.5 else -1.0
-            samples.append(int(wave * (1.0 - progress) * VOLUME * 32767))
+            wave = math.sin(2 * math.pi * phase) + 0.25 * math.sin(4 * math.pi * phase)
+            envelope = min(1.0, i / attack) * (1.0 - progress) ** 2
+            samples.append(int(wave * envelope * volume * 0.8 * 32767))
     return samples
 
 
-def _noise(seconds, sample_rate, loudness=0.7):
-    """Builds mono samples of a fading burst of noise."""
+def _noise(seconds, sample_rate, volume, smoothness, whoosh=False):
+    """Builds mono samples of softened noise. Lower smoothness = darker sound.
+
+    A whoosh fades in and out. Otherwise the noise starts at once and fades out.
+    """
     samples = array.array("h")
     count = int(sample_rate * seconds)
+    filtered = 0.0
     for i in range(count):
-        fade = 1.0 - i / count
-        samples.append(int(random.uniform(-1.0, 1.0) * fade * VOLUME * loudness * 32767))
+        progress = i / count
+        filtered += smoothness * (random.uniform(-1.0, 1.0) - filtered)
+        envelope = math.sin(math.pi * progress) if whoosh else (1.0 - progress) ** 2
+        samples.append(int(filtered * envelope * volume * 32767))
     return samples
 
 
-def _mix(first, second):
-    """Plays two sample lists at the same time."""
-    length = max(len(first), len(second))
+def _mix(*parts):
+    """Plays several sample lists at the same time."""
     mixed = array.array("h")
-    for i in range(length):
-        a = first[i] if i < len(first) else 0
-        b = second[i] if i < len(second) else 0
-        mixed.append(max(-32767, min(32767, a + b)))
+    for i in range(max(len(part) for part in parts)):
+        total = sum(part[i] for part in parts if i < len(part))
+        mixed.append(max(-32767, min(32767, total)))
     return mixed
 
 
@@ -75,28 +79,33 @@ def init() -> None:
         return
     print(f"Sound is on ({sample_rate} Hz, {channels} channels). Press M to mute.")
 
+    # Each name holds one or more variants. play() picks one at random.
     mono = {
-        "click": _square_notes([(880, 660, 0.05)], sample_rate),
-        "step": _noise(0.04, sample_rate, 0.35),
-        "jump": _square_notes([(260, 520, 0.12)], sample_rate),
-        "coin": _square_notes([(988, 988, 0.06), (1319, 1319, 0.1)], sample_rate),
-        "gem": _square_notes([(1319, 1319, 0.06), (1760, 1760, 0.12)], sample_rate),
-        "pickup": _square_notes([(523, 523, 0.07), (659, 659, 0.07), (784, 784, 0.12)], sample_rate),
-        "swing": _noise(0.08, sample_rate),
-        "hit": _mix(_square_notes([(180, 90, 0.12)], sample_rate), _noise(0.1, sample_rate)),
-        "hurt": _square_notes([(330, 110, 0.25)], sample_rate),
+        "click": [_tone([(700, 520, 0.05)], sample_rate, 0.16)],
+        "jump": [_tone([(240, 420, 0.14)], sample_rate, 0.16)],
+        "coin": [_tone([(988, 988, 0.07), (1319, 1319, 0.12)], sample_rate, 0.13)],
+        "gem": [_tone([(1319, 1319, 0.07), (1760, 1760, 0.14)], sample_rate, 0.13)],
+        "pickup": [_tone([(523, 523, 0.07), (659, 659, 0.07), (784, 784, 0.14)], sample_rate, 0.14)],
+        "swing": [_noise(0.13, sample_rate, 0.2, 0.3, whoosh=True)],
+        "hit": [_mix(_tone([(170, 80, 0.12)], sample_rate, 0.22), _noise(0.08, sample_rate, 0.14, 0.35))],
+        "hurt": [_tone([(300, 150, 0.25)], sample_rate, 0.2)],
+        # A footstep is a low thud with a little scuff on top.
+        "step": [
+            _mix(_tone([(95, 55, 0.09)], sample_rate, 0.3), _noise(0.05, sample_rate, 0.07, 0.15)),
+            _mix(_tone([(80, 50, 0.09)], sample_rate, 0.3), _noise(0.05, sample_rate, 0.07, 0.15)),
+        ],
     }
-    for name, samples in mono.items():
-        _sounds[name] = _to_sound(samples, channels)
+    for name, variants in mono.items():
+        _sounds[name] = [_to_sound(samples, channels) for samples in variants]
 
 
 def play(name: str) -> None:
     """Plays one sound effect by name."""
     if _muted:
         return
-    sound = _sounds.get(name)
-    if sound is not None:
-        sound.play()
+    variants = _sounds.get(name)
+    if variants:
+        random.choice(variants).play()
 
 
 def toggle_mute() -> bool:
