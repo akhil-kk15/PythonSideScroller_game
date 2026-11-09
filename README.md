@@ -46,7 +46,7 @@ Someone who wants a short, honest game they can start in under a minute and beat
     <td><img src="docs/images/level1-start.png" alt="Level 1: Emerald Grasslands" width="100%"><br><sub><b>Level 1.</b> Emerald Grasslands.</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/images/level1-door.png" alt="Key collected, locked door and cave exit" width="100%"><br><sub><b>The key.</b> Get it, unlock the gate, reach the exit.</sub></td>
+    <td><img src="docs/images/level1-door.png" alt="Key collected, locked door and cave exit" width="100%"><br><sub><b>The key.</b> use it to unlock the gate, reach the exit.</sub></td>
     <td><img src="docs/images/level2-combat.png" alt="Level 2: Dark Forest" width="100%"><br><sub><b>Level 2.</b> The Dark Forest.</sub></td>
   </tr>
   <tr>
