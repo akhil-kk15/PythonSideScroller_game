@@ -710,6 +710,9 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
                 menu_knight.draw(screen, (main_panel.left + 85, menu_feet_y))
                 menu_slime.draw(screen, (main_panel.right - 85, menu_feet_y))
 
+        # Music plays in the main menu and the stories before a level, not during play.
+        sounds.set_music(game_state == "menu" or (game_state == "story" and story_next_state == "playing"))
+
         window.blit(screen, (0, BAR_HEIGHT))
         titlebar.draw(window, font_sm)
         pygame.display.flip()
