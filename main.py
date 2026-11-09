@@ -516,6 +516,7 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
 
     game_state = open_menu("menu")
 
+    step_timer = 0  # frames until the next footstep sound
     running = True
     while running:
         state_changed_by_event = False
@@ -620,6 +621,12 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
                 level.width,
                 gamepad=gamepad,
             )
+            walking = player.on_ground and not player.on_ladder and abs(player.vel_x) > 1.5
+            step_timer = step_timer - 1 if walking else 0
+            if walking and step_timer <= 0:
+                sounds.play("step")
+                step_timer = 16
+
             if move_events["jumped"]:
                 sounds.play("jump")
                 level.particles.append(
@@ -653,6 +660,7 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
                     story_next_state = "playing"
                     game_state = "story"
                 else:
+                    sounds.play("victory")
                     show_results(menus["victory"], player, current_level_num, highscore_path,
                                  save=not level_skip_used)
                     # Show the ending story first, then the victory screen.
@@ -701,6 +709,9 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
             if game_state == "menu":
                 menu_knight.draw(screen, (main_panel.left + 85, menu_feet_y))
                 menu_slime.draw(screen, (main_panel.right - 85, menu_feet_y))
+
+        # Music plays in the main menu and the stories before a level, not during play.
+        sounds.set_music(game_state == "menu" or (game_state == "story" and story_next_state == "playing"))
 
         window.blit(screen, (0, BAR_HEIGHT))
         titlebar.draw(window, font_sm)

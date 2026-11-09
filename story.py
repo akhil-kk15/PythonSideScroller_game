@@ -12,6 +12,7 @@ import math
 import random
 import pygame
 
+import sounds
 from ui import Button, MenuCharacter, draw_text_with_shadow, HIGHLIGHT_COLOR, TEXT_COLOR, HINT_COLOR
 from titlebar import BAR_HEIGHT
 
@@ -168,6 +169,7 @@ class StoryScreen:
 
     def next_page(self):
         # Go to the next page. Returns "done" after the last page.
+        sounds.play("click")
         self.index += 1
         if self.index >= len(self.pages):
             self.index = len(self.pages) - 1
