@@ -516,6 +516,7 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
 
     game_state = open_menu("menu")
 
+    step_timer = 0  # frames until the next footstep sound
     running = True
     while running:
         state_changed_by_event = False
@@ -620,6 +621,12 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
                 level.width,
                 gamepad=gamepad,
             )
+            walking = player.on_ground and not player.on_ladder and abs(player.vel_x) > 1.5
+            step_timer = step_timer - 1 if walking else 0
+            if walking and step_timer <= 0:
+                sounds.play("step")
+                step_timer = 16
+
             if move_events["jumped"]:
                 sounds.play("jump")
                 level.particles.append(

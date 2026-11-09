@@ -30,13 +30,13 @@ def _square_notes(notes, sample_rate):
     return samples
 
 
-def _noise(seconds, sample_rate):
+def _noise(seconds, sample_rate, loudness=0.7):
     """Builds mono samples of a fading burst of noise."""
     samples = array.array("h")
     count = int(sample_rate * seconds)
     for i in range(count):
         fade = 1.0 - i / count
-        samples.append(int(random.uniform(-1.0, 1.0) * fade * VOLUME * 0.7 * 32767))
+        samples.append(int(random.uniform(-1.0, 1.0) * fade * VOLUME * loudness * 32767))
     return samples
 
 
@@ -67,12 +67,17 @@ def init() -> None:
         if not pygame.mixer.get_init():
             pygame.mixer.init()
         sample_rate, size, channels = pygame.mixer.get_init()
-    except pygame.error:
+    except (pygame.error, TypeError) as error:
+        print(f"Sound is off: no audio device could be opened ({error})")
         return
     if size != -16:
+        print("Sound is off: the audio device does not support 16-bit sound")
         return
+    print(f"Sound is on ({sample_rate} Hz, {channels} channels). Press M to mute.")
 
     mono = {
+        "click": _square_notes([(880, 660, 0.05)], sample_rate),
+        "step": _noise(0.04, sample_rate, 0.35),
         "jump": _square_notes([(260, 520, 0.12)], sample_rate),
         "coin": _square_notes([(988, 988, 0.06), (1319, 1319, 0.1)], sample_rate),
         "gem": _square_notes([(1319, 1319, 0.06), (1760, 1760, 0.12)], sample_rate),
