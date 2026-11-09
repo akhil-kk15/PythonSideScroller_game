@@ -399,8 +399,6 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
     """Initializes Pygame, slices sprite sheets if needed, and runs the main game loop."""
     configure_sdl_hints(controller_mode)
     pygame.init()
-    # The window has no frame. The game is drawn on "screen", and the title bar
-    # is drawn above it when the frame is shown.
     window = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT + BAR_HEIGHT), pygame.NOFRAME | pygame.SCALED)
     screen = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
     pygame.display.set_caption(WINDOW_TITLE)
@@ -516,7 +514,7 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
 
     game_state = open_menu("menu")
 
-    step_timer = 0  # frames until the next footstep sound
+    step_timer = 0
     running = True
     while running:
         state_changed_by_event = False
@@ -531,12 +529,12 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
                 try:
                     pygame.display.toggle_fullscreen()
                 except pygame.error:
-                    pass  # this system cannot switch to fullscreen
+                    pass
                 continue
             if event.type == pygame.KEYDOWN and event.key == pygame.K_m:
                 sounds.toggle_mute()
                 continue
-            shift_mouse_event(event)  # mouse positions are relative to the game, not the bar
+            shift_mouse_event(event)
 
             if gamepad.handle_event(event):
                 if game_state == "controls":
@@ -710,7 +708,6 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
                 menu_knight.draw(screen, (main_panel.left + 85, menu_feet_y))
                 menu_slime.draw(screen, (main_panel.right - 85, menu_feet_y))
 
-        # Music plays in the main menu and the stories before a level, not during play.
         sounds.set_music(game_state == "menu" or (game_state == "story" and story_next_state == "playing"))
 
         window.blit(screen, (0, BAR_HEIGHT))
