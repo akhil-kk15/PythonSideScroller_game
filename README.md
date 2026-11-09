@@ -42,7 +42,7 @@ Someone who wants a short, honest game they can start in under a minute and beat
 
 <table>
   <tr>
-    <td><img src="docs/images/main-menu.png" alt="Main menu" width="100%"><br><sub><b>Main menu.</b> Mouse, keyboard or controller.</sub></td>
+    <td><img src="docs/images/main-menu.png" alt="Main menu" width="100%"><br><sub><b>Start menu.</b> Mouse, keyboard or controller.</sub></td>
     <td><img src="docs/images/level1-start.png" alt="Level 1: Emerald Grasslands" width="100%"><br><sub><b>Level 1.</b> Emerald Grasslands.</sub></td>
   </tr>
   <tr>
@@ -50,7 +50,7 @@ Someone who wants a short, honest game they can start in under a minute and beat
     <td><img src="docs/images/level2-combat.png" alt="Level 2: Dark Forest" width="100%"><br><sub><b>Level 2.</b> The Dark Forest.</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/images/pause-menu.png" alt="Pause menu" width="100%"><br><sub><b>Pause menu.</b></sub></td>
+    <td><img src="docs/images/pause-menu.png" alt="Pause menu" width="100%"><br><sub><b>Dark forest field</b></sub></td>
     <td><img src="docs/images/victory.png" alt="Victory screen with top 5 highscores" width="100%"><br><sub><b>Victory.</b> Your top five are saved.</sub></td>
   </tr>
 </table>
