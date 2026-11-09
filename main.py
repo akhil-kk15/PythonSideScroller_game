@@ -12,10 +12,13 @@ from ui import MenuCharacter, create_menus, load_icons
 from story import create_stories
 from highscores import add_highscore, best_score_text, highscore_lines, load_highscores
 from joystick import MODE_AUTO, MODES, Gamepad, configure_sdl_hints
+from titlebar import BAR_HEIGHT, TitleBar, shift_mouse_event
+import sounds
 
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
 FPS = 60
+WINDOW_TITLE = "Knight's Quest - The Stolen Crown"
 
 
 def draw_hud(
@@ -149,6 +152,7 @@ def handle_level_interactions(
         for idx, ch in enumerate(level.chests):
             if not ch["open"] and attack_rect.colliderect(ch["rect"]):
                 ch["open"] = True
+                sounds.play("pickup")
                 cx, cy = ch["rect"].center
                 player.score += 300
                 player.coins += 3
@@ -175,6 +179,7 @@ def handle_level_interactions(
     for ch in level.chests:
         if not ch["open"] and player.rect.colliderect(ch["rect"]):
             ch["open"] = True
+            sounds.play("pickup")
             cx, cy = ch["rect"].center
             player.score += 300
             player.coins += 3
@@ -193,11 +198,13 @@ def handle_level_interactions(
             item.collected = True
             ix, iy = item.rect.center
             if item.kind == "coin":
+                sounds.play("coin")
                 player.coins += 1
                 player.score += 100
                 level.particles.append(VFXParticle(ix, iy, image=assets.vfx["star_hit"], duration=14))
                 level.particles.append(VFXParticle(ix - 12, iy - 16, text="+100", duration=24))
             elif item.kind == "gem":
+                sounds.play("gem")
                 player.gems += 1
                 player.score += 250
                 level.particles.append(VFXParticle(ix, iy, image=assets.vfx["star_hit"], duration=18))
@@ -205,12 +212,14 @@ def handle_level_interactions(
                     VFXParticle(ix - 14, iy - 16, text="+250", color=(110, 225, 255), duration=28)
                 )
             elif item.kind == "potion":
+                sounds.play("pickup")
                 player.heal(2)
                 player.score += 150
                 level.particles.append(
                     VFXParticle(ix - 18, iy - 16, text="+HEART", color=(255, 110, 120), duration=28)
                 )
             elif item.kind == "key":
+                sounds.play("pickup")
                 player.has_key = True
                 player.score += 500
                 level.particles.append(VFXParticle(ix, iy, image=assets.vfx["hit_burst"], duration=24))
@@ -390,8 +399,13 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
     """Initializes Pygame, slices sprite sheets if needed, and runs the main game loop."""
     configure_sdl_hints(controller_mode)
     pygame.init()
-    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-    pygame.display.set_caption("Knight's Quest - The Stolen Crown")
+    # The window has no frame. The game is drawn on "screen", and the title bar
+    # is drawn above it when the frame is shown.
+    window = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT + BAR_HEIGHT), pygame.NOFRAME | pygame.SCALED)
+    screen = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+    pygame.display.set_caption(WINDOW_TITLE)
+    titlebar = TitleBar(SCREEN_WIDTH, WINDOW_TITLE)
+    sounds.init()
     clock = pygame.time.Clock()
     gamepad = Gamepad(mode=controller_mode)
 
@@ -510,6 +524,19 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
                 running = False
                 continue
 
+            if titlebar.handle_event(event):
+                continue
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
+                try:
+                    pygame.display.toggle_fullscreen()
+                except pygame.error:
+                    pass  # this system cannot switch to fullscreen
+                continue
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_m:
+                sounds.toggle_mute()
+                continue
+            shift_mouse_event(event)  # mouse positions are relative to the game, not the bar
+
             if gamepad.handle_event(event):
                 if game_state == "controls":
                     refresh_controls_menu()
@@ -594,6 +621,7 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
                 gamepad=gamepad,
             )
             if move_events["jumped"]:
+                sounds.play("jump")
                 level.particles.append(
                     VFXParticle(
                         player.rect.centerx,
@@ -674,6 +702,8 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
                 menu_knight.draw(screen, (main_panel.left + 85, menu_feet_y))
                 menu_slime.draw(screen, (main_panel.right - 85, menu_feet_y))
 
+        window.blit(screen, (0, BAR_HEIGHT))
+        titlebar.draw(window, font_sm)
         pygame.display.flip()
         clock.tick(FPS)
 

@@ -136,6 +136,8 @@ Pull a lever and three bonus gems appear. Your best five runs are saved, with th
 | Attack | `J` `Z` `X` `F` `K` or left click | `X` `B` `Y` `RB` or `RT` |
 | Pause | `Esc` or `P` | `Start` |
 | Restart level | `R` or `Enter` | `Back` / `Select` |
+| Fullscreen on / off | `F11` | n/a |
+| Mute / unmute sound | `M` | n/a |
 | Menus | Mouse, or `W`/`S` + `Enter` | Stick or D-pad + `A` (`B` = back) |
 | Cutscenes | `Enter` / `Space` / click = next, `Esc` = skip | `A` = next, `B` or `Start` = skip |
 
@@ -166,6 +168,9 @@ We wrote these down so nobody has to guess what the game is supposed to do.
 | FR-7 | play animated story cutscenes before Level 1, before Level 2 and at the ending |
 | FR-8 | save a top-five leaderboard to `highscores.txt` |
 | FR-9 | support gamepads that can be plugged in at any time, in Auto, XInput or DirectInput mode |
+| FR-10 | show a custom title bar with minimize and close buttons, and let the player drag the window by it |
+| FR-11 | switch between windowed and fullscreen mode with `F11` |
+| FR-12 | play sound effects for jumping, attacking, collecting items and taking damage, with `M` to mute |
 
 ### 6.2 Non-functional
 
@@ -195,6 +200,8 @@ joystick.py     XInput and DirectInput controller support with hot-plug
 highscores.py   Persistent top-five leaderboard
 background.py   Parallax scrolling backgrounds
 animation.py    Sprite animation system
+sounds.py       Synthesized sound effects
+titlebar.py     Custom title bar with minimize and close buttons
 slice_assets.py Cuts the master sprite sheets into individual PNGs
 assets/         Sprite sheets, sliced sprites and backgrounds
 ```
