@@ -1,8 +1,4 @@
-"""Soft retro sound effects, synthesized in code, plus the looping music.
-
-Call init() once after pygame.init(). Then play("jump") anywhere. If the
-computer has no audio device, every call quietly does nothing.
-"""
+"""Sound effects and music."""
 
 import array
 import math
@@ -11,19 +7,19 @@ import random
 
 import pygame
 
-MUSIC_VOLUME = 0.35  # music stays quiet in the background (1.0 = full volume)
+MUSIC_VOLUME = 0.35
 MUSIC_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "music", "theme.wav")
 
 _sounds: dict[str, list[pygame.mixer.Sound]] = {}
 _muted = False
-_music_on = False  # the game decides when the music should play (see set_music)
+_music_on = False
 _music_channel = None
 
 
 def _tone(notes, sample_rate, volume):
-    """Builds mono samples for soft notes given as (start_hz, end_hz, seconds)."""
+    """Returns mono samples for a list of notes."""
     samples = array.array("h")
-    attack = max(1, int(sample_rate * 0.006))  # a quick fade-in avoids clicks
+    attack = max(1, int(sample_rate * 0.006))
     for start_hz, end_hz, seconds in notes:
         count = int(sample_rate * seconds)
         phase = 0.0
@@ -37,10 +33,7 @@ def _tone(notes, sample_rate, volume):
 
 
 def _noise(seconds, sample_rate, volume, smoothness, whoosh=False):
-    """Builds mono samples of softened noise. Lower smoothness = darker sound.
-
-    A whoosh fades in and out. Otherwise the noise starts at once and fades out.
-    """
+    """Returns mono samples of soft noise."""
     samples = array.array("h")
     count = int(sample_rate * seconds)
     filtered = 0.0
@@ -53,7 +46,7 @@ def _noise(seconds, sample_rate, volume, smoothness, whoosh=False):
 
 
 def _mix(*parts):
-    """Plays several sample lists at the same time."""
+    """Mixes sample lists together."""
     mixed = array.array("h")
     for i in range(max(len(part) for part in parts)):
         total = sum(part[i] for part in parts if i < len(part))
@@ -62,7 +55,7 @@ def _mix(*parts):
 
 
 def _to_sound(samples, channels):
-    """Turns mono samples into a Sound that matches the mixer's channel count."""
+    """Makes a Sound from mono samples."""
     if channels > 1:
         stereo = array.array("h")
         for value in samples:
@@ -72,7 +65,7 @@ def _to_sound(samples, channels):
 
 
 def _start_music(channels):
-    """Starts the looping music on the reserved channel, if its file exists."""
+    """Starts the music loop."""
     global _music_channel
     if not os.path.exists(MUSIC_FILE):
         return
@@ -85,7 +78,7 @@ def _start_music(channels):
 
 
 def set_music(on: bool) -> None:
-    """Turns the music on or off. It keeps its place in the tune while off."""
+    """Turns the music on or off."""
     global _music_on
     if on == _music_on:
         return
@@ -98,7 +91,7 @@ def set_music(on: bool) -> None:
 
 
 def init() -> None:
-    """Creates all sound effects. Does nothing if audio is not available."""
+    """Creates the sound effects."""
     try:
         if not pygame.mixer.get_init():
             pygame.mixer.init()
@@ -111,7 +104,6 @@ def init() -> None:
         return
     print(f"Sound is on ({sample_rate} Hz, {channels} channels). Press M to mute.")
 
-    # Each name holds one or more variants. play() picks one at random.
     mono = {
         "click": [_tone([(700, 520, 0.05)], sample_rate, 0.16)],
         "jump": [_tone([(240, 420, 0.14)], sample_rate, 0.16)],
@@ -121,13 +113,11 @@ def init() -> None:
         "swing": [_noise(0.13, sample_rate, 0.2, 0.3, whoosh=True)],
         "hit": [_mix(_tone([(170, 80, 0.12)], sample_rate, 0.22), _noise(0.08, sample_rate, 0.14, 0.35))],
         "hurt": [_tone([(300, 150, 0.25)], sample_rate, 0.2)],
-        # A footstep is a low thud with a little scuff on top.
         "step": [
             _mix(_tone([(95, 55, 0.09)], sample_rate, 0.3), _noise(0.05, sample_rate, 0.07, 0.15)),
             _mix(_tone([(80, 50, 0.09)], sample_rate, 0.3), _noise(0.05, sample_rate, 0.07, 0.15)),
         ],
     }
-    # A short, happy fanfare for winning the game.
     mono["victory"] = [
         _mix(
             _tone([(523, 523, 0.14), (659, 659, 0.14), (784, 784, 0.14), (1047, 1047, 0.9)], sample_rate, 0.15),
@@ -138,13 +128,12 @@ def init() -> None:
     for name, variants in mono.items():
         _sounds[name] = [_to_sound(samples, channels) for samples in variants]
 
-    # Channel 0 is kept for the music, so sound effects never cut it off.
     pygame.mixer.set_reserved(1)
     _start_music(channels)
 
 
 def play(name: str) -> None:
-    """Plays one sound effect by name."""
+    """Plays a sound effect."""
     if _muted:
         return
     variants = _sounds.get(name)
@@ -153,7 +142,7 @@ def play(name: str) -> None:
 
 
 def toggle_mute() -> bool:
-    """Switches the sound on or off. Returns True when it is now muted."""
+    """Mutes or unmutes the sound. Returns True when muted."""
     global _muted
     _muted = not _muted
     if _music_channel is not None:
