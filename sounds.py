@@ -1,4 +1,4 @@
-"""Soft retro sound effects, synthesized in code (no audio files needed).
+"""Soft retro sound effects, synthesized in code, plus the looping music.
 
 Call init() once after pygame.init(). Then play("jump") anywhere. If the
 computer has no audio device, every call quietly does nothing.
@@ -6,12 +6,17 @@ computer has no audio device, every call quietly does nothing.
 
 import array
 import math
+import os
 import random
 
 import pygame
 
+MUSIC_VOLUME = 0.35  # music stays quiet in the background (1.0 = full volume)
+MUSIC_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "music", "theme.wav")
+
 _sounds: dict[str, list[pygame.mixer.Sound]] = {}
 _muted = False
+_music_channel = None
 
 
 def _tone(notes, sample_rate, volume):
@@ -65,6 +70,17 @@ def _to_sound(samples, channels):
     return pygame.mixer.Sound(buffer=samples.tobytes())
 
 
+def _start_music(channels):
+    """Starts the looping music on the reserved channel, if its file exists."""
+    global _music_channel
+    if not os.path.exists(MUSIC_FILE):
+        return
+    channel = pygame.mixer.Channel(0)
+    channel.set_volume(0.0 if _muted else MUSIC_VOLUME)
+    channel.play(pygame.mixer.Sound(MUSIC_FILE), loops=-1)
+    _music_channel = channel
+
+
 def init() -> None:
     """Creates all sound effects. Does nothing if audio is not available."""
     try:
@@ -95,8 +111,20 @@ def init() -> None:
             _mix(_tone([(80, 50, 0.09)], sample_rate, 0.3), _noise(0.05, sample_rate, 0.07, 0.15)),
         ],
     }
+    # A short, happy fanfare for winning the game.
+    mono["victory"] = [
+        _mix(
+            _tone([(523, 523, 0.14), (659, 659, 0.14), (784, 784, 0.14), (1047, 1047, 0.9)], sample_rate, 0.15),
+            array.array("h", [0] * int(sample_rate * 0.42))
+            + _mix(_tone([(659, 659, 0.9)], sample_rate, 0.08), _tone([(784, 784, 0.9)], sample_rate, 0.08)),
+        )
+    ]
     for name, variants in mono.items():
         _sounds[name] = [_to_sound(samples, channels) for samples in variants]
+
+    # Channel 0 is kept for the music, so sound effects never cut it off.
+    pygame.mixer.set_reserved(1)
+    _start_music(channels)
 
 
 def play(name: str) -> None:
@@ -112,4 +140,6 @@ def toggle_mute() -> bool:
     """Switches the sound on or off. Returns True when it is now muted."""
     global _muted
     _muted = not _muted
+    if _music_channel is not None:
+        _music_channel.set_volume(0.0 if _muted else MUSIC_VOLUME)
     return _muted

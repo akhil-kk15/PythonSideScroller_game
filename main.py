@@ -660,6 +660,7 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
                     story_next_state = "playing"
                     game_state = "story"
                 else:
+                    sounds.play("victory")
                     show_results(menus["victory"], player, current_level_num, highscore_path,
                                  save=not level_skip_used)
                     # Show the ending story first, then the victory screen.
