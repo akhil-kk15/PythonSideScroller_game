@@ -3,6 +3,7 @@
 import os
 import pygame
 
+import sounds
 from animation import Animation, OneShotAnimation, Animator
 
 # Height of the knight's body (top of the plume to the feet) in the sprite
@@ -129,6 +130,7 @@ class Player:
         if self.attack_cooldown > 0 or self.attacking:
             return False
         self.attacking = True
+        sounds.play("swing")
         self.attack_timer = 16
         self.attack_cooldown = 20
         # After a short pause the combo starts again with the first swing.
@@ -172,6 +174,7 @@ class Player:
         if self.invuln_timer > 0 or self.dead:
             return False
         self.hp = max(0, self.hp - amount)
+        sounds.play("hurt")
         self.invuln_timer = 65
         self.on_ladder = False
         self.vel_y = -6.5
