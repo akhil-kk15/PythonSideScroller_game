@@ -170,7 +170,7 @@ We wrote these down so nobody has to guess what the game is supposed to do.
 | FR-9 | support gamepads that can be plugged in at any time, in Auto, XInput or DirectInput mode |
 | FR-10 | show a custom title bar with minimize and close buttons, and let the player drag the window by it |
 | FR-11 | switch between windowed and fullscreen mode with `F11` |
-| FR-12 | play sound effects for jumping, attacking, collecting items and taking damage, with `M` to mute |
+| FR-12 | play soft sound effects (jumping, attacking, footsteps, button clicks, collecting items, taking damage), quiet background music in the main menu and story screens, and a victory fanfare, with `M` to mute |
 
 ### 6.2 Non-functional
 
@@ -200,7 +200,8 @@ joystick.py     XInput and DirectInput controller support with hot-plug
 highscores.py   Persistent top-five leaderboard
 background.py   Parallax scrolling backgrounds
 animation.py    Sprite animation system
-sounds.py       Synthesized sound effects
+sounds.py       Sound effects, music playback and the mute key
+make_music.py   Builds the background music (assets/music/theme.wav)
 titlebar.py     Custom title bar with minimize and close buttons
 slice_assets.py Cuts the master sprite sheets into individual PNGs
 assets/         Sprite sheets, sliced sprites and backgrounds

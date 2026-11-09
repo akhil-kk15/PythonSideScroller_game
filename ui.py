@@ -7,6 +7,7 @@
 
 import pygame
 
+import sounds
 from animation import Animation
 
 # Same colors as the HUD in main.py.
@@ -109,6 +110,7 @@ class Menu:
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             for button in self.buttons:
                 if button.rect.collidepoint(event.pos):
+                    sounds.play("click")
                     return button.action
         elif event.type == pygame.KEYDOWN:
             if event.key in (pygame.K_UP, pygame.K_w):
@@ -116,6 +118,7 @@ class Menu:
             elif event.key in (pygame.K_DOWN, pygame.K_s):
                 self.selected = (self.selected + 1) % len(self.buttons)
             elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+                sounds.play("click")
                 return self.buttons[self.selected].action
             elif event.key == pygame.K_ESCAPE:
                 return self.back_action
@@ -128,6 +131,7 @@ class Menu:
         elif gamepad.nav_down:
             self.selected = (self.selected + 1) % len(self.buttons)
         if gamepad.confirm:
+            sounds.play("click")
             return self.buttons[self.selected].action
         if gamepad.back:
             return self.back_action
