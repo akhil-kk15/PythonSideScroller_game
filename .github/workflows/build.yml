@@ -19,14 +19,17 @@ jobs:
         include:
           - platform: Windows
             os: windows-latest
+            add_data_sep: ";"
             artifact_name: KnightsQuest-Windows
             release_file: dist/KnightsQuest-Windows.exe
           - platform: macOS
             os: macos-latest
+            add_data_sep: ":"
             artifact_name: KnightsQuest-macOS
             release_file: dist/KnightsQuest-macOS.zip
           - platform: Linux
             os: ubuntu-latest
+            add_data_sep: ":"
             artifact_name: KnightsQuest-Linux
             release_file: dist/KnightsQuest-Linux.zip
 
@@ -49,12 +52,7 @@ jobs:
 
       - name: Build executable with PyInstaller
         run: |
-          pyinstaller --noconfirm --clean --onefile --windowed \
-            --name KnightsQuest \
-            --add-data "assets/sliced:assets/sliced" \
-            --add-data "assets/backgrounds:assets/backgrounds" \
-            --add-data "assets/music:assets/music" \
-            main.py
+          pyinstaller --noconfirm --clean --onefile --windowed --name KnightsQuest --add-data "assets/sliced${{ matrix.add_data_sep }}assets/sliced" --add-data "assets/backgrounds${{ matrix.add_data_sep }}assets/backgrounds" --add-data "assets/music${{ matrix.add_data_sep }}assets/music" main.py
 
       - name: Package Windows executable
         if: matrix.platform == 'Windows'
