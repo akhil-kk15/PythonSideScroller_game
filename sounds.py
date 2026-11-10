@@ -4,11 +4,13 @@ import array
 import math
 import os
 import random
+import sys
 
 import pygame
 
 MUSIC_VOLUME = 0.35
-MUSIC_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "music", "theme.wav")
+BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+MUSIC_FILE = os.path.join(BASE_DIR, "assets", "music", "theme.wav")
 
 _sounds: dict[str, list[pygame.mixer.Sound]] = {}
 _muted = False

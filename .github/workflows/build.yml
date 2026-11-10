@@ -1,0 +1,101 @@
+name: Build Executables
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Windows
+            os: windows-latest
+            bundle_mode: "--onefile"
+            add_data_sep: ";"
+            artifact_name: KnightsQuest-Windows
+            release_file: dist/KnightsQuest-Windows.exe
+          - platform: macOS
+            os: macos-latest
+            bundle_mode: "--onedir"
+            add_data_sep: ":"
+            artifact_name: KnightsQuest-macOS
+            release_file: dist/KnightsQuest-macOS.zip
+          - platform: Linux
+            os: ubuntu-latest
+            bundle_mode: "--onefile"
+            add_data_sep: ":"
+            artifact_name: KnightsQuest-Linux
+            release_file: dist/KnightsQuest-Linux.zip
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies and PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Prepare sliced assets
+        run: python slice_assets.py
+
+      - name: Build executable with PyInstaller
+        run: |
+          pyinstaller --noconfirm --clean ${{ matrix.bundle_mode }} --windowed --name KnightsQuest --add-data "assets/sliced${{ matrix.add_data_sep }}assets/sliced" --add-data "assets/backgrounds${{ matrix.add_data_sep }}assets/backgrounds" --add-data "assets/music${{ matrix.add_data_sep }}assets/music" main.py
+
+      - name: Package Windows executable
+        if: matrix.platform == 'Windows'
+        shell: bash
+        run: |
+          cp dist/KnightsQuest.exe dist/KnightsQuest-Windows.exe
+
+      - name: Sign and package macOS app bundle
+        if: matrix.platform == 'macOS'
+        run: |
+          codesign --force --deep --sign - dist/KnightsQuest.app
+          ditto -c -k --keepParent dist/KnightsQuest.app dist/KnightsQuest-macOS.zip
+
+      - name: Package Linux executable
+        if: matrix.platform == 'Linux'
+        run: |
+          chmod +x dist/KnightsQuest
+          cd dist && zip -r KnightsQuest-Linux.zip KnightsQuest
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.release_file }}
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: false

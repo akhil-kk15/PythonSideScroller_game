@@ -408,10 +408,13 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
     gamepad = Gamepad(mode=controller_mode)
 
     # Slice sprite sheets when needed.
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     assets_dir = os.path.join(base_dir, "assets")
     sliced_dir = slice_all_assets(assets_dir, force=False)
-    highscore_path = os.path.join(base_dir, "highscores.txt")
+    save_dir = os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False) else base_dir
+    if not os.access(save_dir, os.W_OK):
+        save_dir = os.path.expanduser("~")
+    highscore_path = os.path.join(save_dir, "highscores.txt")
 
     # Load fonts.
     font_sm = pygame.font.SysFont("dejavusans,arial,sans-serif", 15, bold=True)
