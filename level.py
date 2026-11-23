@@ -3,6 +3,7 @@
 import json
 import math
 import os
+import shutil
 import sys
 import pygame
 
@@ -14,10 +15,24 @@ TILE_SIZE = 64
 
 def get_levels_dir() -> str:
     """Return the directory where custom/edited level JSON files are saved."""
-    base_dir = os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
+    base_dir = (
+        os.path.dirname(os.path.abspath(sys.executable))
+        if getattr(sys, "frozen", False)
+        else os.path.dirname(os.path.abspath(__file__))
+    )
     if not os.access(base_dir, os.W_OK):
         base_dir = os.path.expanduser("~")
-    return os.path.join(base_dir, "levels")
+    ldir = os.path.join(base_dir, "levels")
+    bundled_ldir = os.path.join(getattr(sys, "_MEIPASS", ""), "levels") if hasattr(sys, "_MEIPASS") else ""
+    if bundled_ldir and os.path.isdir(bundled_ldir) and not os.path.exists(ldir):
+        try:
+            os.makedirs(ldir, exist_ok=True)
+            for fname in os.listdir(bundled_ldir):
+                if fname.endswith(".json"):
+                    shutil.copy2(os.path.join(bundled_ldir, fname), os.path.join(ldir, fname))
+        except OSError:
+            return bundled_ldir
+    return ldir
 
 
 def default_level_json_path(level_number: int) -> str:

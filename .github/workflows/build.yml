@@ -55,7 +55,7 @@ jobs:
 
       - name: Build executable with PyInstaller
         run: |
-          pyinstaller --noconfirm --clean ${{ matrix.bundle_mode }} --windowed --name KnightsQuest --add-data "assets/sliced${{ matrix.add_data_sep }}assets/sliced" --add-data "assets/backgrounds${{ matrix.add_data_sep }}assets/backgrounds" --add-data "assets/music${{ matrix.add_data_sep }}assets/music" main.py
+          pyinstaller --noconfirm --clean ${{ matrix.bundle_mode }} --windowed --name KnightsQuest --add-data "assets${{ matrix.add_data_sep }}assets" --add-data "levels${{ matrix.add_data_sep }}levels" main.py
 
       - name: Package Windows executable
         if: matrix.platform == 'Windows'
