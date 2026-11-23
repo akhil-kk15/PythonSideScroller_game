@@ -5,6 +5,7 @@
 # Menu   -> a title, some lines of text and a column of buttons in a panel.
 #           It works with the mouse and with the keyboard (W/S or arrows + Enter).
 
+import math
 import pygame
 
 import sounds
@@ -34,8 +35,85 @@ def draw_text_with_shadow(surface, font, text, color, midtop):
     surface.blit(label, label.get_rect(midtop=midtop))
 
 
+_SQUIRCLE_CACHE: dict[tuple, pygame.Surface] = {}
+
+
+def _squircle_points(
+    w: int,
+    h: int,
+    n: float = 3.6,
+    corner_ratio: float = 0.46,
+    steps_per_corner: int = 18,
+) -> list[tuple[float, float]]:
+    """Generate superellipse / squircle perimeter points for a `(w, h)` box."""
+    r = max(2.0, min(w, h) * corner_ratio)
+    cx_left = r
+    cx_right = max(r, w - r)
+    cy_top = r
+    cy_bot = max(r, h - r)
+    pts: list[tuple[float, float]] = []
+    corners = (
+        (cx_right, cy_bot, 0.0, math.pi * 0.5),
+        (cx_left, cy_bot, math.pi * 0.5, math.pi),
+        (cx_left, cy_top, math.pi, math.pi * 1.5),
+        (cx_right, cy_top, math.pi * 1.5, math.pi * 2.0),
+    )
+    exp = 2.0 / n
+    for cx, cy, a0, a1 in corners:
+        for i in range(steps_per_corner + 1):
+            t = a0 + (a1 - a0) * (i / steps_per_corner)
+            ct = math.cos(t)
+            st = math.sin(t)
+            dx = (1.0 if ct >= 0 else -1.0) * (abs(ct) ** exp) * r
+            dy = (1.0 if st >= 0 else -1.0) * (abs(st) ** exp) * r
+            pts.append((cx + dx, cy + dy))
+    return pts
+
+
+def draw_squircle(
+    surface: pygame.Surface,
+    fill_color: tuple[int, int, int] | None,
+    rect: pygame.Rect | tuple[int, int, int, int],
+    border_color: tuple[int, int, int] | None = None,
+    border_width: int = 0,
+    n: float = 3.6,
+    corner_ratio: float = 0.46,
+) -> None:
+    """Draw a smooth 2x-supersampled squircle (superellipse) button or panel."""
+    r = pygame.Rect(rect)
+    w, h = r.width, r.height
+    if w < 4 or h < 4:
+        return
+    key = (w, h, fill_color, border_color, border_width, round(n, 2), round(corner_ratio, 2))
+    cached = _SQUIRCLE_CACHE.get(key)
+    if cached is None:
+        if len(_SQUIRCLE_CACHE) > 600:
+            _SQUIRCLE_CACHE.clear()
+        ss = 2 if (w <= 480 and h <= 480) else 1
+        sw, sh = w * ss, h * ss
+        temp = pygame.Surface((sw, sh), pygame.SRCALPHA)
+        outer_pts = _squircle_points(sw, sh, n=n, corner_ratio=corner_ratio)
+        if border_color is not None and border_width > 0:
+            if fill_color is not None:
+                pygame.draw.polygon(temp, border_color, outer_pts)
+                pad = max(1, border_width * ss)
+                iw, ih = max(4, sw - 2 * pad), max(4, sh - 2 * pad)
+                inner_pts = [
+                    (x + pad, y + pad)
+                    for x, y in _squircle_points(iw, ih, n=n, corner_ratio=corner_ratio)
+                ]
+                pygame.draw.polygon(temp, fill_color, inner_pts)
+            else:
+                pygame.draw.polygon(temp, border_color, outer_pts, max(1, border_width * ss))
+        elif fill_color is not None:
+            pygame.draw.polygon(temp, fill_color, outer_pts)
+        cached = pygame.transform.smoothscale(temp, (w, h)) if ss > 1 else temp
+        _SQUIRCLE_CACHE[key] = cached
+    surface.blit(cached, r.topleft)
+
+
 class Button:
-    # A rectangle with text. When it is clicked, the menu returns its action.
+    # A squircle button with text. When it is clicked, the menu returns its action.
 
     def __init__(self, text, action, center, icon=None, size=BUTTON_SIZE):
         self.text = text
@@ -46,12 +124,10 @@ class Button:
 
     def draw(self, surface, font, selected):
         if selected:
-            pygame.draw.rect(surface, PANEL_SELECTED_COLOR, self.rect, border_radius=10)
-            pygame.draw.rect(surface, HIGHLIGHT_COLOR, self.rect, 3, border_radius=10)
+            draw_squircle(surface, PANEL_SELECTED_COLOR, self.rect, HIGHLIGHT_COLOR, 3)
             color = HIGHLIGHT_COLOR
         else:
-            pygame.draw.rect(surface, PANEL_COLOR, self.rect, border_radius=10)
-            pygame.draw.rect(surface, BORDER_COLOR, self.rect, 2, border_radius=10)
+            draw_squircle(surface, PANEL_COLOR, self.rect, BORDER_COLOR, 2)
             color = TEXT_COLOR
         if self.icon is not None:
             surface.blit(self.icon, self.icon.get_rect(midleft=(self.rect.left + 18, self.rect.centery)))
@@ -156,8 +232,7 @@ class Menu:
         overlay.fill((12, 15, 24, self.overlay_alpha))
         surface.blit(overlay, (0, 0))
 
-        pygame.draw.rect(surface, PANEL_COLOR, self.panel, border_radius=14)
-        pygame.draw.rect(surface, self.title_color, self.panel, 3, border_radius=14)
+        draw_squircle(surface, PANEL_COLOR, self.panel, self.title_color, 3, corner_ratio=0.14)
 
         center_x = self.panel.centerx
         draw_text_with_shadow(surface, self.title_font, self.title, self.title_color, (center_x, self.title_y))

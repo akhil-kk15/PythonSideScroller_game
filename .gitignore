@@ -14,3 +14,7 @@ dist/
 
 # Local highscore list (every player has their own)
 highscores.txt
+
+# Custom assets
+assets/sliced/custom/stronghold_far.png
+assets/sliced/custom/stronghold_mid.png

@@ -7,8 +7,8 @@ import pygame
 
 from slice_assets import slice_all_assets
 from player import FEET_PADDING, Player, load_player_sprites
-from level import AssetLibrary, Collectible, Level, VFXParticle
-from ui import MenuCharacter, create_menus, load_icons
+from level import AssetLibrary, Collectible, Level, VFXParticle, get_available_levels
+from ui import MenuCharacter, create_menus, draw_squircle, load_icons
 from story import create_stories
 from highscores import add_highscore, best_score_text, highscore_lines, load_highscores
 from joystick import MODE_AUTO, MODES, Gamepad, configure_sdl_hints
@@ -80,14 +80,12 @@ def draw_hud(
     # Key status.
     key_box = pygame.Rect(sc(380), sc(9), sc(175), sc(40))
     if player.has_key:
-        pygame.draw.rect(surface, (55, 85, 45), key_box, border_radius=sc(8))
-        pygame.draw.rect(surface, (255, 215, 70), key_box, max(1, sc(2)), border_radius=sc(8))
+        draw_squircle(surface, (55, 85, 45), key_box, (255, 215, 70), max(1, sc(2)))
         surface.blit(scale_icon(assets.ui["key_icon"]), (sc(388), sc(13)))
         k_txt = font_sm.render("KEY READY!", True, (255, 235, 110))
         surface.blit(k_txt, (sc(426), sc(20)))
     else:
-        pygame.draw.rect(surface, (38, 42, 56), key_box, border_radius=sc(8))
-        pygame.draw.rect(surface, (90, 100, 125), key_box, 1, border_radius=sc(8))
+        draw_squircle(surface, (38, 42, 56), key_box, (90, 100, 125), 1)
         k_txt = font_sm.render("FIND GOLD KEY", True, (170, 180, 205))
         surface.blit(k_txt, (sc(402), sc(20)))
 
@@ -98,7 +96,7 @@ def draw_hud(
     score_txt = font_md.render(f"SCORE: {player.score:05d}", True, (255, 240, 150))
     surface.blit(score_txt, (sw - score_txt.get_width() - sc(24), sc(16)))
 
-    # Controls.
+    # Controls (smaller font size at the bottom).
     if gamepad is not None and gamepad.is_connected():
         controls_hint = (
             "Move: Stick/D-Pad or A/D | Jump: (A)/Space | Climb: Up/Down | "
@@ -109,15 +107,20 @@ def draw_hud(
             "Move: A/D or Arrows | Jump: Space/W | Climb: W/S | "
             "Attack: J/Z/Click | Restart: R | Pause: Esc/P"
         )
-    ctrl_txt = font_sm.render(
+    ctrl_font_size = max(9, round(11 * s))
+    if getattr(draw_hud, "_ctrl_font_size", None) != ctrl_font_size:
+        draw_hud._ctrl_font_size = ctrl_font_size
+        draw_hud._ctrl_font = pygame.font.SysFont("dejavusans,arial,sans-serif", ctrl_font_size, bold=True)
+    ctrl_txt = draw_hud._ctrl_font.render(
         controls_hint,
         True,
-        (215, 225, 240),
+        (205, 215, 235),
     )
-    ctrl_bg = pygame.Surface((ctrl_txt.get_width() + sc(16), sc(26)), pygame.SRCALPHA)
-    ctrl_bg.fill((15, 18, 26, 165))
-    surface.blit(ctrl_bg, (sc(10), sh - sc(32)))
-    surface.blit(ctrl_txt, (sc(18), sh - sc(27)))
+    ctrl_h = ctrl_txt.get_height() + sc(8)
+    ctrl_bg = pygame.Surface((ctrl_txt.get_width() + sc(16), ctrl_h), pygame.SRCALPHA)
+    ctrl_bg.fill((15, 18, 26, 155))
+    surface.blit(ctrl_bg, (sc(10), sh - ctrl_h - sc(6)))
+    surface.blit(ctrl_txt, (sc(18), sh - ctrl_h - sc(6) + sc(4)))
 
     # Banner notification.
     if level.banner_timer > 0 and level.banner_message:
@@ -126,10 +129,7 @@ def draw_hud(
         bh = sc(42)
         bx = (sw - bw) // 2
         by = sc(72)
-        banner_surf = pygame.Surface((bw, bh), pygame.SRCALPHA)
-        banner_surf.fill((22, 28, 45, 225))
-        surface.blit(banner_surf, (bx, by))
-        pygame.draw.rect(surface, (255, 210, 75), (bx, by, bw, bh), max(1, sc(2)), border_radius=sc(6))
+        draw_squircle(surface, (22, 28, 45), (bx, by, bw, bh), (255, 210, 75), max(1, sc(2)))
         surface.blit(b_txt, (bx + (bw - b_txt.get_width()) // 2, by + (bh - b_txt.get_height()) // 2))
 
 
@@ -646,12 +646,14 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
                 elif event.key in (pygame.K_r, pygame.K_RETURN):
                     level = load_level(current_level_num, assets, player)
                     set_stats(player, level_start_stats)
-                elif event.key in (pygame.K_1, pygame.K_2):
+                elif pygame.K_1 <= event.key <= pygame.K_9:
                     # Jump to a level (for testing). This run will not be saved as a highscore.
-                    current_level_num = 1 if event.key == pygame.K_1 else 2
-                    level = load_level(current_level_num, assets, player)
-                    level_start_stats = get_stats(player)
-                    level_skip_used = True
+                    target_lvl = event.key - pygame.K_0
+                    if target_lvl in get_available_levels():
+                        current_level_num = target_lvl
+                        level = load_level(current_level_num, assets, player)
+                        level_start_stats = get_stats(player)
+                        level_skip_used = True
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 player.trigger_attack()
 
@@ -718,16 +720,21 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
             status = handle_level_interactions(player, level, assets)
             if status == "next_level":
                 player.score += 1000
-                if current_level_num == 1:
-                    current_level_num = 2
-                    level = load_level(2, assets, player)
+                avail_levels = get_available_levels()
+                higher_levels = [n for n in avail_levels if n > current_level_num]
+                if higher_levels:
+                    current_level_num = higher_levels[0]
+                    level = load_level(current_level_num, assets, player)
                     level_start_stats = get_stats(player)
                     camera_x = 0.0
-                    current_story_key = "level_2"
-                    current_story = stories["level_2"]
-                    current_story.reset()
-                    story_next_state = "playing"
-                    game_state = "story"
+                    if current_level_num == 2 and "level_2" in stories:
+                        current_story_key = "level_2"
+                        current_story = stories["level_2"]
+                        current_story.reset()
+                        story_next_state = "playing"
+                        game_state = "story"
+                    else:
+                        game_state = "playing"
                 else:
                     sounds.play("victory")
                     show_results(menus["victory"], player, current_level_num, highscore_path,

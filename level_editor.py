@@ -4,6 +4,8 @@ import copy
 import json
 import math
 import os
+import shutil
+import subprocess
 import sys
 import pygame
 
@@ -21,10 +23,12 @@ from level import (
     Level,
     VFXParticle,
     default_level_json_path,
+    get_available_levels,
     get_levels_dir,
 )
 from player import Player, load_player_sprites
 from titlebar import BAR_HEIGHT, TitleBar, create_opaque_surface, create_window, shift_mouse_event, toggle_fullscreen
+from ui import draw_squircle
 
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
@@ -380,6 +384,16 @@ class LevelEditorApp:
         self.playtest_cam_x = 0.0
         self.playtest_step_timer = 0
 
+        # Level name editing & Image Importer Modal state.
+        self.editing_level_name = False
+        self.image_modal_open = False
+        self.modal_dir = os.path.abspath(self.assets_dir)
+        self.modal_entries: list[tuple[str, bool]] = []  # (name, is_dir)
+        self.modal_scroll = 0
+        self.modal_selected_path: str | None = None
+        self.modal_preview_surf: pygame.Surface | None = None
+        self.modal_remove_bg = False
+
         # Load initial level.
         self.load_level_slot(initial_level)
         self._update_slicer_preview()
@@ -428,24 +442,216 @@ class LevelEditorApp:
                 return obj
         return None
 
+    def get_levels_list(self) -> list[int]:
+        """Return all available level numbers (including the currently edited level)."""
+        return sorted(set(get_available_levels()) | {self.current_level_num})
+
+    def create_new_level(self) -> int:
+        """Create and save a brand-new level (Level N+1) and switch to it."""
+        new_num = max(self.get_levels_list()) + 1
+        self.load_level_slot(new_num, force_default=True)
+        self.save_current_level()
+        self._set_status(f"Created Level {new_num}! Drag textures onto the canvas to build it.")
+        return new_num
+
+    def cycle_level(self, delta: int) -> None:
+        """Switch to the previous or next available level."""
+        lvls = self.get_levels_list()
+        if not lvls:
+            return
+        idx = lvls.index(self.current_level_num) if self.current_level_num in lvls else 0
+        next_lvl = lvls[(idx + delta) % len(lvls)]
+        self.load_level_slot(next_lvl)
+
+    def delete_current_level(self) -> None:
+        """Delete a custom level (Level 3+) or reset Level 1/2 to built-in default."""
+        path = default_level_json_path(self.current_level_num)
+        if self.current_level_num <= 2:
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+            self.load_level_slot(self.current_level_num, force_default=True)
+            self._set_status(f"Reset Level {self.current_level_num} to built-in default.")
+            return
+
+        removed_num = self.current_level_num
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        remaining = get_available_levels()
+        target = max((n for n in remaining if n < removed_num), default=remaining[-1])
+        self.load_level_slot(target)
+        sounds.play("hit")
+        self._set_status(f"Deleted Level {removed_num}; switched to Level {target}.")
+
+    def open_image_modal(self, start_dir: str | None = None) -> None:
+        """Open the in-editor Visual Image Importer modal."""
+        self.image_modal_open = True
+        if start_dir and os.path.isdir(start_dir):
+            self.modal_dir = os.path.abspath(start_dir)
+        elif not os.path.isdir(self.modal_dir):
+            self.modal_dir = os.path.expanduser("~")
+        self._refresh_modal_entries()
+
+    def _refresh_modal_entries(self) -> None:
+        self.modal_entries.clear()
+        self.modal_scroll = 0
+        try:
+            names = sorted(os.listdir(self.modal_dir), key=lambda s: s.lower())
+        except OSError:
+            names = []
+        dirs = []
+        files = []
+        valid_exts = (".png", ".jpg", ".jpeg", ".bmp", ".webp")
+        for n in names:
+            if n.startswith("."):
+                continue
+            full = os.path.join(self.modal_dir, n)
+            if os.path.isdir(full):
+                dirs.append((n, True))
+            elif n.lower().endswith(valid_exts):
+                files.append((n, False))
+        self.modal_entries = dirs + files
+
+    def _select_modal_file(self, path: str) -> None:
+        self.modal_selected_path = path
+        try:
+            self.modal_preview_surf = pygame.image.load(path).convert_alpha()
+        except pygame.error:
+            self.modal_preview_surf = None
+
+    def _open_native_file_dialog(self) -> str | None:
+        """Try opening a native OS file dialog via zenity, kdialog, or tkinter."""
+        for cmd in (
+            ["zenity", "--file-selection", "--title=Select Image File", "--file-filter=Images | *.png *.jpg *.jpeg *.bmp *.webp"],
+            ["kdialog", "--getopenfilename", self.modal_dir, "Image Files (*.png *.jpg *.jpeg *.bmp *.webp)"],
+        ):
+            if shutil.which(cmd[0]):
+                try:
+                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=False)
+                    chosen = res.stdout.strip()
+                    if res.returncode == 0 and chosen and os.path.isfile(chosen):
+                        return chosen
+                    return None
+                except (OSError, subprocess.SubprocessError):
+                    pass
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+
+            root = tk.Tk()
+            root.withdraw()
+            chosen = filedialog.askopenfilename(
+                initialdir=self.modal_dir,
+                title="Select Image File",
+                filetypes=[("Image Files", "*.png *.jpg *.jpeg *.bmp *.webp"), ("All Files", "*.*")],
+            )
+            root.destroy()
+            if chosen and os.path.isfile(chosen):
+                return chosen
+        except Exception:
+            pass
+        return None
+
+    def import_image_file(self, path: str, as_sheet: bool = False, remove_bg: bool = False) -> PaletteItem | None:
+        """Import an external image file either into the Custom Palette or into `assets/` as a Slicer sheet."""
+        if not path or not os.path.isfile(path):
+            self._set_status("Select a valid image file first!")
+            return None
+
+        base_name = os.path.splitext(os.path.basename(path))[0]
+        clean_name = "".join(c if (c.isalnum() or c in "_-") else "_" for c in base_name).strip("_") or "imported_img"
+
+        if as_sheet:
+            ext = os.path.splitext(path)[1].lower() or ".png"
+            dest_fname = f"{clean_name}{ext}"
+            dest_path = os.path.join(self.assets_dir, dest_fname)
+            if os.path.abspath(path) != os.path.abspath(dest_path):
+                shutil.copy2(path, dest_path)
+            self.sheet_files = self._discover_sheets()
+            if dest_fname in self.sheet_files:
+                self.active_sheet_idx = self.sheet_files.index(dest_fname)
+                self.sheet_surfaces.pop(dest_fname, None)
+            sheet = self._get_active_sheet_surface()
+            if sheet is not None:
+                sw, sh = sheet.get_size()
+                self.slicer_crop_rect = pygame.Rect(0, 0, min(256, sw), min(256, sh))
+                self.slicer_preview_dirty = True
+                self._update_slicer_preview()
+            self.image_modal_open = False
+            self.mode = "slicer"
+            sounds.play("coin")
+            self._set_status(f"Imported '{dest_fname}' into Sprite Sheet Slicer!")
+            return None
+
+        # Import directly as a usable texture in `assets/sliced/custom/`.
+        try:
+            loaded = pygame.image.load(path).convert_alpha()
+        except pygame.error as exc:
+            self._set_status(f"Failed to load image: {exc}")
+            return None
+
+        if remove_bg:
+            sw, sh = loaded.get_size()
+            loaded = extract_sprite(loaded, (0, 0, sw, sh), remove_interior_bg=False, auto_trim=True)
+
+        custom_dir = os.path.join(self.sliced_dir, "custom")
+        os.makedirs(custom_dir, exist_ok=True)
+        unique_name = clean_name
+        idx = 1
+        while os.path.exists(os.path.join(custom_dir, f"{unique_name}.png")):
+            unique_name = f"{clean_name}_{idx:02d}"
+            idx += 1
+
+        out_path = os.path.join(custom_dir, f"{unique_name}.png")
+        pygame.image.save(loaded, out_path)
+
+        iw, ih = loaded.get_size()
+        if iw <= 160 and ih <= 160:
+            tw, th = max(16, iw), max(16, ih)
+        else:
+            scale = TILE_SIZE / max(1, ih)
+            tw, th = max(16, min(256, int(round(iw * scale)))), TILE_SIZE
+
+        manifest = load_custom_manifest(self.sliced_dir)
+        manifest[unique_name] = {
+            "obj_type": "solid",
+            "w": tw,
+            "h": th,
+            "layer": 1,
+        }
+        save_custom_manifest(self.sliced_dir, manifest)
+
+        self.assets.reload_custom()
+        self.palette = build_palette(self.assets)
+        created_item = None
+        for item in self.palette:
+            if item.ref == f"custom:{unique_name}":
+                created_item = item
+                break
+        if created_item is not None:
+            self.selected_palette_item = created_item
+            self.active_category = "Custom"
+        self.image_modal_open = False
+        self.mode = "editor"
+        sounds.play("coin")
+        self._set_status(f"Imported '{unique_name}.png' ({tw}x{th}) to Custom palette!")
+        return created_item
+
     def load_level_slot(self, level_num: int, force_default: bool = False) -> None:
-        """Load Level 1, Level 2, or Custom Level 3 into the editor."""
+        """Load any level slot (Level 1, 2, 3, ...) into the editor."""
         self.current_level_num = level_num
         json_path = default_level_json_path(level_num)
         if not force_default and os.path.exists(json_path):
             lvl = Level(level_num, self.assets, json_path=json_path)
             source_label = os.path.basename(json_path)
-        elif level_num in (1, 2):
-            lvl = Level(level_num, self.assets, use_default=True)
-            source_label = f"Built-in Level {level_num}"
         else:
-            # Level 3 (Custom) starts with a starter ground segment + spawn + exit.
-            lvl = Level(1, self.assets, use_default=True)
-            lvl.level_number = level_num
-            lvl.level_name = f"Level {level_num}: Custom Quest"
-            lvl.background_id = 1
-            lvl.banner_message = f"LEVEL {level_num}: Custom Level!"
-            source_label = "New Custom Template"
+            lvl = Level(level_num, self.assets, use_default=True)
+            source_label = f"Built-in Level {level_num}" if level_num in (1, 2) else f"Level {level_num} Starter Template"
 
         d = lvl.to_dict()
         self.level_name = d["level_name"]
@@ -455,14 +661,6 @@ class LevelEditorApp:
         self.ground_y = d["ground_y"]
         self.banner_message = d.get("banner_message", "")
         self.objects = d["editor_objects"]
-        if level_num not in (1, 2) and not os.path.exists(json_path):
-            # Keep only ground row 10 in columns 0..14 and 42..56 plus spawn/exit for a clean custom template.
-            self.objects = [
-                o
-                for o in self.objects
-                if o["obj_type"] in ("spawn", "exit")
-                or (o["obj_type"] == "solid" and o["y"] >= 10 * TILE_SIZE and (o["x"] < 12 * TILE_SIZE or o["x"] >= 46 * TILE_SIZE))
-            ]
         self.next_obj_id = max((o["id"] for o in self.objects), default=0) + 1
         self.selected_obj_id = None
         self.undo_stack.clear()
@@ -824,11 +1022,31 @@ class LevelEditorApp:
     # ------------------------------------------------------------------
     def handle_event(self, event: pygame.event.Event) -> str | None:
         """Process a single Pygame event. Returns 'quit' or 'main_menu' if requested."""
+        if event.type == pygame.DROPFILE:
+            dropped_path = getattr(event, "file", "")
+            if dropped_path and os.path.isfile(dropped_path):
+                self.import_image_file(dropped_path, as_sheet=(self.mode == "slicer"))
+            return None
+
+        if self.image_modal_open:
+            self._handle_image_modal_event(event)
+            return None
+
         if self.mode == "playtest":
             return self._handle_playtest_event(event)
 
         # Global keyboard shortcuts.
         if event.type == pygame.KEYDOWN:
+            if self.mode == "editor" and self.editing_level_name:
+                if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_ESCAPE):
+                    self.editing_level_name = False
+                elif event.key == pygame.K_BACKSPACE:
+                    self.level_name = self.level_name[:-1]
+                elif event.unicode and event.unicode.isprintable():
+                    if len(self.level_name) < 36:
+                        self.level_name += event.unicode
+                return None
+
             if self.mode == "slicer" and self.slicer_editing_name:
                 if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_ESCAPE):
                     self.slicer_editing_name = False
@@ -921,8 +1139,14 @@ class LevelEditorApp:
                     self.mode = "slicer"
                 elif action == "playtest":
                     self.start_playtest(spawn_at_camera=bool(pygame.key.get_mods() & pygame.KMOD_SHIFT))
-                elif action in ("lvl_1", "lvl_2", "lvl_3"):
-                    self.load_level_slot(int(action.split("_")[1]))
+                elif action == "prev_lvl":
+                    self.cycle_level(-1)
+                elif action in ("next_lvl", "cycle_lvl"):
+                    self.cycle_level(1)
+                elif action == "add_lvl":
+                    self.create_new_level()
+                elif action == "add_image":
+                    self.open_image_modal()
                 elif action == "save":
                     self.save_current_level()
                 elif action == "reset_default":
@@ -944,20 +1168,22 @@ class LevelEditorApp:
 
     def _get_topbar_buttons(self) -> list[tuple[pygame.Rect, str]]:
         btns = [
-            (pygame.Rect(8, 6, 118, 32), "mode_editor"),
-            (pygame.Rect(130, 6, 134, 32), "mode_slicer"),
-            (pygame.Rect(268, 6, 108, 32), "playtest"),
-            (pygame.Rect(390, 6, 56, 32), "lvl_1"),
-            (pygame.Rect(450, 6, 56, 32), "lvl_2"),
-            (pygame.Rect(510, 6, 62, 32), "lvl_3"),
-            (pygame.Rect(584, 6, 78, 32), "save"),
-            (pygame.Rect(666, 6, 94, 32), "reset_default"),
-            (pygame.Rect(764, 6, 60, 32), "clear"),
-            (pygame.Rect(836, 6, 98, 32), "toggle_snap"),
-            (pygame.Rect(938, 6, 94, 32), "toggle_hitboxes"),
-            (pygame.Rect(1042, 6, 54, 32), "undo"),
-            (pygame.Rect(1100, 6, 54, 32), "redo"),
-            (pygame.Rect(1164, 6, 108, 32), "main_menu"),
+            (pygame.Rect(8, 6, 112, 32), "mode_editor"),
+            (pygame.Rect(124, 6, 118, 32), "mode_slicer"),
+            (pygame.Rect(246, 6, 102, 32), "playtest"),
+            (pygame.Rect(356, 6, 28, 32), "prev_lvl"),
+            (pygame.Rect(386, 6, 76, 32), "cycle_lvl"),
+            (pygame.Rect(464, 6, 28, 32), "next_lvl"),
+            (pygame.Rect(496, 6, 68, 32), "add_lvl"),
+            (pygame.Rect(568, 6, 74, 32), "add_image"),
+            (pygame.Rect(648, 6, 76, 32), "save"),
+            (pygame.Rect(728, 6, 68, 32), "reset_default"),
+            (pygame.Rect(800, 6, 56, 32), "clear"),
+            (pygame.Rect(862, 6, 88, 32), "toggle_snap"),
+            (pygame.Rect(954, 6, 84, 32), "toggle_hitboxes"),
+            (pygame.Rect(1044, 6, 52, 32), "undo"),
+            (pygame.Rect(1100, 6, 52, 32), "redo"),
+            (pygame.Rect(1160, 6, 112, 32), "main_menu"),
         ]
         return btns
 
@@ -1017,10 +1243,16 @@ class LevelEditorApp:
                         self.palette_scroll = 0
                         sounds.play("click")
                         return
-                # Slice new sprite button at top of palette.
-                slice_btn = pygame.Rect(8, TOPBAR_H + 36, LEFT_PANEL_W - 16, 26)
+                # Slice new sprite & Add image buttons at top of palette.
+                half_w = (LEFT_PANEL_W - 20) // 2
+                slice_btn = pygame.Rect(8, TOPBAR_H + 36, half_w, 26)
+                add_img_btn = pygame.Rect(12 + half_w, TOPBAR_H + 36, half_w, 26)
                 if slice_btn.collidepoint(mx, my):
                     self.mode = "slicer"
+                    sounds.play("click")
+                    return
+                if add_img_btn.collidepoint(mx, my):
+                    self.open_image_modal()
                     sounds.play("click")
                     return
                 # Palette cards -> start drag-and-drop!
@@ -1310,12 +1542,26 @@ class LevelEditorApp:
         sel = self.get_selected_obj()
         if sel is None:
             # Level settings buttons when nothing is selected.
-            y = TOPBAR_H + 86
-            btns.append((pygame.Rect(rx, y, w // 2 - 4, 28), "bg_1"))
-            btns.append((pygame.Rect(rx + w // 2 + 4, y, w // 2 - 4, 28), "bg_2"))
-            y += 58
-            btns.append((pygame.Rect(rx, y, w // 2 - 4, 28), "width_minus"))
-            btns.append((pygame.Rect(rx + w // 2 + 4, y, w // 2 - 4, 28), "width_plus"))
+            btns.append((pygame.Rect(rx, TOPBAR_H + 34, w, 26), "edit_level_name"))
+            y = TOPBAR_H + 84
+            btns.append((pygame.Rect(rx, y, w // 2 - 4, 26), "bg_1"))
+            btns.append((pygame.Rect(rx + w // 2 + 4, y, w // 2 - 4, 26), "bg_2"))
+            y += 52
+            btns.append((pygame.Rect(rx, y, w // 2 - 4, 26), "width_minus"))
+            btns.append((pygame.Rect(rx + w // 2 + 4, y, w // 2 - 4, 26), "width_plus"))
+
+            # Dynamic Level Slots grid + Add/Delete Level.
+            y += 52
+            lvls = self.get_levels_list()
+            cell_w = (w - 12) // 3
+            for i, lnum in enumerate(lvls[:12]):
+                col = i % 3
+                row = i // 3
+                btns.append((pygame.Rect(rx + col * (cell_w + 6), y + row * 28, cell_w, 24), f"select_lvl:{lnum}"))
+            rows_used = (min(12, len(lvls)) + 2) // 3
+            y_act = y + rows_used * 28 + 6
+            btns.append((pygame.Rect(rx, y_act, w // 2 - 4, 26), "add_lvl"))
+            btns.append((pygame.Rect(rx + w // 2 + 4, y_act, w // 2 - 4, 26), "delete_lvl"))
             return btns
 
         # Action row buttons.
@@ -1362,11 +1608,14 @@ class LevelEditorApp:
 
     def _handle_inspector_click(self, pos: tuple[int, int]) -> None:
         sel = self.get_selected_obj()
+        self.editing_level_name = False
         for rect, action in self._get_inspector_buttons():
             if not rect.collidepoint(pos):
                 continue
             sounds.play("click")
-            if action == "bg_1":
+            if action == "edit_level_name":
+                self.editing_level_name = True
+            elif action == "bg_1":
                 self.background_id = 1
                 self._set_status("Background set to 1: Emerald Grasslands.")
             elif action == "bg_2":
@@ -1378,6 +1627,12 @@ class LevelEditorApp:
             elif action == "width_plus":
                 self.level_width = min(120 * TILE_SIZE, self.level_width + 4 * TILE_SIZE)
                 self._set_status(f"Level width: {self.level_width // TILE_SIZE} tiles ({self.level_width}px).")
+            elif action.startswith("select_lvl:"):
+                self.load_level_slot(int(action.split(":", 1)[1]))
+            elif action == "add_lvl":
+                self.create_new_level()
+            elif action == "delete_lvl":
+                self.delete_current_level()
             elif sel is not None:
                 if action == "flip_h":
                     self._flip_selected(True)
@@ -1465,9 +1720,12 @@ class LevelEditorApp:
         x = 10
         y = TOPBAR_H + 6
         for idx, sname in enumerate(self.sheet_files):
-            w = max(84, self.font_sm.size(sname)[0] + 20)
+            w = max(72, self.font_xs.size(sname[:16])[0] + 18)
+            if x + w > SLICER_VIEW_W - 350:
+                break
             btns.append((pygame.Rect(x, y, w, 26), f"sheet:{idx}"))
             x += w + 6
+        btns.append((pygame.Rect(x, y, 86, 26), "add_sheet"))
 
         btns.append((pygame.Rect(SLICER_VIEW_W - 250, y, 52, 26), "zoom_out"))
         btns.append((pygame.Rect(SLICER_VIEW_W - 194, y, 52, 26), "zoom_in"))
@@ -1558,6 +1816,8 @@ class LevelEditorApp:
                         if action.startswith("sheet:"):
                             self.active_sheet_idx = int(action.split(":")[1])
                             self.slicer_preview_dirty = True
+                        elif action == "add_sheet":
+                            self.open_image_modal()
                         elif action == "zoom_out":
                             self.slicer_zoom = max(0.2, self.slicer_zoom / 1.25)
                         elif action == "zoom_in":
@@ -1812,6 +2072,122 @@ class LevelEditorApp:
         self.playtest_cam_x += (target_cam_x - self.playtest_cam_x) * 0.14
 
     # ------------------------------------------------------------------
+    # Image Importer Modal Events & Layout
+    # ------------------------------------------------------------------
+    def _get_image_modal_rects(self) -> tuple[pygame.Rect, pygame.Rect, list[tuple[pygame.Rect, str]]]:
+        mw, mh = min(860, SCREEN_WIDTH - 64), min(580, SCREEN_HEIGHT - 80)
+        mx = (SCREEN_WIDTH - mw) // 2
+        my = (SCREEN_HEIGHT - mh) // 2
+        modal_rect = pygame.Rect(mx, my, mw, mh)
+        list_rect = pygame.Rect(mx + 18, my + 86, int(mw * 0.54), mh - 104)
+
+        btns: list[tuple[pygame.Rect, str]] = []
+        # Close button
+        btns.append((pygame.Rect(mx + mw - 42, my + 10, 32, 28), "close"))
+
+        # Quick folder jump bar
+        qx = mx + 18
+        qy = my + 48
+        home = os.path.expanduser("~")
+        proj_dir = os.path.dirname(self.assets_dir)
+        quick_folders = [
+            ("Project", proj_dir),
+            ("Assets", self.assets_dir),
+            ("Home", home),
+            ("Pictures", os.path.join(home, "Pictures")),
+            ("Downloads", os.path.join(home, "Downloads")),
+            ("Desktop", os.path.join(home, "Desktop")),
+        ]
+        for label, fpath in quick_folders:
+            if os.path.isdir(fpath):
+                bw = self.font_xs.size(label)[0] + 16
+                btns.append((pygame.Rect(qx, qy, bw, 26), f"dir:{fpath}"))
+                qx += bw + 6
+
+        parent_dir = os.path.dirname(self.modal_dir.rstrip(os.sep)) or os.sep
+        btns.append((pygame.Rect(qx, qy, 52, 26), f"dir:{parent_dir}"))
+        qx += 58
+        btns.append((pygame.Rect(qx, qy, 128, 26), "os_dialog"))
+
+        # Right side preview & import controls
+        rx = list_rect.right + 18
+        rw = mx + mw - 18 - rx
+        btns.append((pygame.Rect(rx, my + mh - 122, rw, 28), "toggle_rem_bg"))
+        btns.append((pygame.Rect(rx, my + mh - 86, rw, 34), "import_sprite"))
+        btns.append((pygame.Rect(rx, my + mh - 46, rw, 34), "import_sheet"))
+
+        return modal_rect, list_rect, btns
+
+    def _handle_image_modal_event(self, event: pygame.event.Event) -> None:
+        modal_rect, list_rect, btns = self._get_image_modal_rects()
+
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                self.image_modal_open = False
+            elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER) and self.modal_selected_path:
+                self.import_image_file(self.modal_selected_path, as_sheet=False, remove_bg=self.modal_remove_bg)
+            return
+
+        if event.type == pygame.MOUSEWHEEL:
+            mx, my = pygame.mouse.get_pos()
+            my -= BAR_HEIGHT
+            if list_rect.collidepoint(mx, my):
+                max_scroll = max(0, len(self.modal_entries) * 28 - (list_rect.height - 12))
+                self.modal_scroll = max(0, min(max_scroll, self.modal_scroll - event.y * 28))
+            return
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            mx, my = event.pos
+            if not modal_rect.collidepoint(mx, my):
+                self.image_modal_open = False
+                return
+
+            for rect, action in btns:
+                if rect.collidepoint(mx, my):
+                    sounds.play("click")
+                    if action == "close":
+                        self.image_modal_open = False
+                    elif action.startswith("dir:"):
+                        target_dir = action.split(":", 1)[1]
+                        if os.path.isdir(target_dir):
+                            self.modal_dir = os.path.abspath(target_dir)
+                            self._refresh_modal_entries()
+                    elif action == "os_dialog":
+                        chosen = self._open_native_file_dialog()
+                        if chosen:
+                            self.modal_dir = os.path.dirname(os.path.abspath(chosen))
+                            self._refresh_modal_entries()
+                            self._select_modal_file(chosen)
+                    elif action == "toggle_rem_bg":
+                        self.modal_remove_bg = not self.modal_remove_bg
+                    elif action == "import_sprite":
+                        if self.modal_selected_path:
+                            self.import_image_file(
+                                self.modal_selected_path, as_sheet=False, remove_bg=self.modal_remove_bg
+                            )
+                        else:
+                            self._set_status("Click an image file in the list first!")
+                    elif action == "import_sheet":
+                        if self.modal_selected_path:
+                            self.import_image_file(self.modal_selected_path, as_sheet=True)
+                        else:
+                            self._set_status("Click an image file in the list first!")
+                    return
+
+            if list_rect.collidepoint(mx, my):
+                rel_y = my - (list_rect.y + 6) + self.modal_scroll
+                idx = rel_y // 28
+                if 0 <= idx < len(self.modal_entries):
+                    name, is_dir = self.modal_entries[idx]
+                    full_path = os.path.join(self.modal_dir, name)
+                    sounds.play("click")
+                    if is_dir:
+                        self.modal_dir = os.path.abspath(full_path)
+                        self._refresh_modal_entries()
+                    else:
+                        self._select_modal_file(full_path)
+
+    # ------------------------------------------------------------------
     # Rendering
     # ------------------------------------------------------------------
     def draw(self, surface: pygame.Surface) -> None:
@@ -1833,19 +2209,25 @@ class LevelEditorApp:
         if self.dragging_from_palette is not None:
             self._draw_floating_drag_preview(surface)
 
+        if self.image_modal_open:
+            self._draw_image_modal(surface)
+
     def _draw_topbar(self, surface: pygame.Surface) -> None:
         pygame.draw.rect(surface, PANEL_HEADER, (0, 0, SCREEN_WIDTH, TOPBAR_H))
         pygame.draw.line(surface, BORDER_COL, (0, TOPBAR_H - 1), (SCREEN_WIDTH, TOPBAR_H - 1), 2)
 
+        lvls = self.get_levels_list()
         labels = {
             "mode_editor": ("1. Level Editor", self.mode == "editor", ACCENT_BLUE),
             "mode_slicer": ("2. Sheet Slicer", self.mode == "slicer", ACCENT_BLUE),
             "playtest": ("▶ Playtest (F5)", False, ACCENT_GREEN),
-            "lvl_1": ("Lvl 1", self.current_level_num == 1, HIGHLIGHT_COL),
-            "lvl_2": ("Lvl 2", self.current_level_num == 2, HIGHLIGHT_COL),
-            "lvl_3": ("Custom", self.current_level_num == 3, HIGHLIGHT_COL),
+            "prev_lvl": ("<", False, HIGHLIGHT_COL),
+            "cycle_lvl": (f"Lvl {self.current_level_num}/{len(lvls)}", True, HIGHLIGHT_COL),
+            "next_lvl": (">", False, HIGHLIGHT_COL),
+            "add_lvl": ("+ Level", False, ACCENT_GREEN),
+            "add_image": ("+ Image", False, ACCENT_BLUE),
             "save": ("Save JSON", False, ACCENT_GREEN),
-            "reset_default": ("Reset Default", False, TEXT_MAIN),
+            "reset_default": ("Reset", False, TEXT_MAIN),
             "clear": ("Clear", False, ACCENT_RED),
             "toggle_snap": (f"Snap: {'64px' if self.grid_snap else 'Free'}", self.grid_snap, HIGHLIGHT_COL),
             "toggle_hitboxes": (f"Boxes: {'ON' if self.show_hitboxes else 'OFF'}", self.show_hitboxes, HIGHLIGHT_COL),
@@ -1861,9 +2243,8 @@ class LevelEditorApp:
             text, active, col = labels[action]
             hovered = rect.collidepoint(mx, my)
             bg = CARD_SELECTED if active else (CARD_HOVER if hovered else CARD_BG)
-            pygame.draw.rect(surface, bg, rect, border_radius=6)
             border_c = col if (active or hovered) else BORDER_COL
-            pygame.draw.rect(surface, border_c, rect, 2 if active else 1, border_radius=6)
+            draw_squircle(surface, bg, rect, border_c, 2 if active else 1)
             lbl = self.font_xs.render(text, True, col if active else TEXT_MAIN)
             surface.blit(lbl, lbl.get_rect(center=rect.center))
 
@@ -2049,14 +2430,19 @@ class LevelEditorApp:
             lbl = self.font_xs.render(cat_name, True, HIGHLIGHT_COL if active else TEXT_DIM)
             surface.blit(lbl, lbl.get_rect(center=cat_rect.center))
 
-        # "+ Slice New Sprite from Sheet" shortcut button.
-        slice_btn = pygame.Rect(8, TOPBAR_H + 36, LEFT_PANEL_W - 16, 26)
-        pygame.draw.rect(surface, (42, 68, 98), slice_btn, border_radius=5)
-        pygame.draw.rect(surface, ACCENT_BLUE, slice_btn, 1, border_radius=5)
-        slbl = self.font_xs.render("+ Slice Texture from Sheet (Tab)", True, TEXT_MAIN)
+        # "+ Slice Sheet" and "+ Add Image" shortcut buttons.
+        half_w = (LEFT_PANEL_W - 20) // 2
+        slice_btn = pygame.Rect(8, TOPBAR_H + 36, half_w, 26)
+        add_img_btn = pygame.Rect(12 + half_w, TOPBAR_H + 36, half_w, 26)
+        draw_squircle(surface, (42, 68, 98), slice_btn, ACCENT_BLUE, 1)
+        slbl = self.font_xs.render("+ Slice Sheet", True, TEXT_MAIN)
         surface.blit(slbl, slbl.get_rect(center=slice_btn.center))
 
-        # Palette cards list.
+        draw_squircle(surface, (42, 86, 62), add_img_btn, ACCENT_GREEN, 1)
+        albl = self.font_xs.render("+ Add Image", True, TEXT_MAIN)
+        surface.blit(albl, albl.get_rect(center=add_img_btn.center))
+
+        # Palette cards list (keep square/rectangular cards for sliced image selection).
         list_clip = pygame.Rect(0, TOPBAR_H + 66, LEFT_PANEL_W - 2, panel_rect.height - 66)
         prev_clip = surface.get_clip()
         surface.set_clip(list_clip)
@@ -2070,9 +2456,11 @@ class LevelEditorApp:
             selected = self.selected_palette_item is item
             hovered = card_rect.collidepoint(mx, my)
             bg = CARD_SELECTED if selected else (CARD_HOVER if hovered else CARD_BG)
-            pygame.draw.rect(surface, bg, card_rect, border_radius=6)
             tcol = TYPE_COLORS.get(item.obj_type, BORDER_COL)
-            pygame.draw.rect(surface, HIGHLIGHT_COL if selected else tcol, card_rect, 2 if selected else 1, border_radius=6)
+            pygame.draw.rect(surface, bg, card_rect, border_radius=4)
+            pygame.draw.rect(
+                surface, HIGHLIGHT_COL if selected else tcol, card_rect, 2 if selected else 1, border_radius=4
+            )
 
             # Thumbnail preview.
             thumb_box = pygame.Rect(card_rect.x + 6, card_rect.y + 6, card_rect.width - 12, 46)
@@ -2113,36 +2501,66 @@ class LevelEditorApp:
         if sel is None:
             hdr = self.font_sm.render("LEVEL SETTINGS", True, HIGHLIGHT_COL)
             surface.blit(hdr, (pad_x, y))
-            y += 28
-            surface.blit(self.font_xs.render(self.level_name, True, TEXT_MAIN), (pad_x, y))
-            y += 26
-            surface.blit(self.font_xs.render("Parallax Background Theme:", True, TEXT_DIM), (pad_x, y))
+            surface.blit(self.font_xs.render("Parallax Background Theme:", True, TEXT_DIM), (pad_x, TOPBAR_H + 66))
+            surface.blit(
+                self.font_xs.render(
+                    f"Level Width: {self.level_width // TILE_SIZE} cols ({self.level_width}px)", True, TEXT_DIM
+                ),
+                (pad_x, TOPBAR_H + 118),
+            )
+            surface.blit(self.font_xs.render("LEVEL SLOTS (CLICK TO SWITCH):", True, HIGHLIGHT_COL), (pad_x, TOPBAR_H + 170))
 
+            max_btn_bottom = TOPBAR_H + 220
             for rect, action in self._get_inspector_buttons():
-                if action in ("bg_1", "bg_2"):
+                max_btn_bottom = max(max_btn_bottom, rect.bottom)
+                if action == "edit_level_name":
+                    draw_squircle(
+                        surface,
+                        (16, 20, 30),
+                        rect,
+                        HIGHLIGHT_COL if self.editing_level_name else BORDER_COL,
+                        2 if self.editing_level_name else 1,
+                    )
+                    cursor = "_" if self.editing_level_name and (pygame.time.get_ticks() // 400) % 2 == 0 else ""
+                    lbl = self.font_xs.render((self.level_name + cursor)[:30], True, TEXT_MAIN)
+                    surface.blit(lbl, (rect.x + 8, rect.y + 6))
+                elif action in ("bg_1", "bg_2"):
                     active = (action == "bg_1" and self.background_id == 1) or (action == "bg_2" and self.background_id == 2)
-                    pygame.draw.rect(surface, CARD_SELECTED if active else CARD_BG, rect, border_radius=5)
-                    pygame.draw.rect(surface, HIGHLIGHT_COL if active else BORDER_COL, rect, 1, border_radius=5)
+                    draw_squircle(surface, CARD_SELECTED if active else CARD_BG, rect, HIGHLIGHT_COL if active else BORDER_COL, 1)
                     txt = "1: Grasslands" if action == "bg_1" else "2: Stronghold"
                     lbl = self.font_xs.render(txt, True, HIGHLIGHT_COL if active else TEXT_MAIN)
                     surface.blit(lbl, lbl.get_rect(center=rect.center))
                 elif action in ("width_minus", "width_plus"):
-                    pygame.draw.rect(surface, CARD_BG, rect, border_radius=5)
-                    pygame.draw.rect(surface, BORDER_COL, rect, 1, border_radius=5)
+                    draw_squircle(surface, CARD_BG, rect, BORDER_COL, 1)
                     txt = "- 4 Tiles" if action == "width_minus" else "+ 4 Tiles"
                     lbl = self.font_xs.render(txt, True, TEXT_MAIN)
                     surface.blit(lbl, lbl.get_rect(center=rect.center))
-
-            y = TOPBAR_H + 120
-            surface.blit(
-                self.font_xs.render(f"Level Width: {self.level_width // TILE_SIZE} cols ({self.level_width}px)", True, TEXT_DIM),
-                (pad_x, y),
-            )
+                elif action.startswith("select_lvl:"):
+                    lnum = int(action.split(":", 1)[1])
+                    active = lnum == self.current_level_num
+                    draw_squircle(
+                        surface,
+                        CARD_SELECTED if active else CARD_BG,
+                        rect,
+                        HIGHLIGHT_COL if active else BORDER_COL,
+                        2 if active else 1,
+                    )
+                    lbl = self.font_xs.render(f"Level {lnum}", True, HIGHLIGHT_COL if active else TEXT_MAIN)
+                    surface.blit(lbl, lbl.get_rect(center=rect.center))
+                elif action == "add_lvl":
+                    draw_squircle(surface, (42, 86, 62), rect, ACCENT_GREEN, 1)
+                    lbl = self.font_xs.render("+ New Level", True, TEXT_MAIN)
+                    surface.blit(lbl, lbl.get_rect(center=rect.center))
+                elif action == "delete_lvl":
+                    draw_squircle(surface, (86, 40, 46), rect, ACCENT_RED, 1)
+                    txt = "Reset Lvl" if self.current_level_num <= 2 else f"Delete Lvl {self.current_level_num}"
+                    lbl = self.font_xs.render(txt, True, TEXT_MAIN)
+                    surface.blit(lbl, lbl.get_rect(center=rect.center))
 
             # Quick Editor Guide.
-            y = TOPBAR_H + 190
+            y = max_btn_bottom + 18
             surface.blit(self.font_sm.render("QUICK CONTROLS", True, HIGHLIGHT_COL), (pad_x, y))
-            y += 24
+            y += 22
             tips = [
                 "• Drag from Left Palette -> Canvas",
                 "• Click + Drag object to move",
@@ -2152,13 +2570,15 @@ class LevelEditorApp:
                 "• Hold Alt to bypass 64px snap",
                 "• Right-Click object to delete",
                 "• Middle/Right Drag canvas to pan",
-                "• Tab: Switch to Sprite Slicer",
+                "• + Image: Import external PNG/JPG",
+                "• + Level: Add Level 3, 4, 5...",
                 "• F5 / P: Playtest with Knight!",
-                "• Ctrl+S: Save level JSON",
             ]
             for tip in tips:
+                if y + 16 > panel_rect.bottom - 4:
+                    break
                 surface.blit(self.font_xs.render(tip, True, TEXT_DIM), (pad_x, y))
-                y += 20
+                y += 19
             return
 
         # Selected Object Inspector.
@@ -2208,37 +2628,32 @@ class LevelEditorApp:
         for rect, action in self._get_inspector_buttons():
             if action in btn_labels:
                 col = ACCENT_RED if action == "delete" else BORDER_COL
-                pygame.draw.rect(surface, CARD_BG, rect, border_radius=4)
-                pygame.draw.rect(surface, col, rect, 1, border_radius=4)
+                draw_squircle(surface, CARD_BG, rect, col, 1)
                 lbl = self.font_xs.render(btn_labels[action], True, ACCENT_RED if action == "delete" else TEXT_MAIN)
                 surface.blit(lbl, lbl.get_rect(center=rect.center))
             elif action.startswith("type:"):
                 otype = action.split(":", 1)[1]
                 active = sel["obj_type"] == otype
                 tcol = TYPE_COLORS.get(otype, BORDER_COL)
-                pygame.draw.rect(surface, CARD_SELECTED if active else CARD_BG, rect, border_radius=4)
-                pygame.draw.rect(surface, tcol if active else BORDER_COL, rect, 2 if active else 1, border_radius=4)
+                draw_squircle(surface, CARD_SELECTED if active else CARD_BG, rect, tcol if active else BORDER_COL, 2 if active else 1)
                 lbl = self.font_xs.render(TYPE_LABELS[otype][:14], True, tcol if active else TEXT_DIM)
                 surface.blit(lbl, lbl.get_rect(center=rect.center))
             elif action.startswith("drop:"):
                 drop = action.split(":", 1)[1]
                 active = (sel.get("props") or {}).get("drop", "coin") == drop
-                pygame.draw.rect(surface, CARD_SELECTED if active else CARD_BG, rect, border_radius=4)
-                pygame.draw.rect(surface, HIGHLIGHT_COL if active else BORDER_COL, rect, 1, border_radius=4)
+                draw_squircle(surface, CARD_SELECTED if active else CARD_BG, rect, HIGHLIGHT_COL if active else BORDER_COL, 1)
                 lbl = self.font_xs.render(drop.capitalize(), True, HIGHLIGHT_COL if active else TEXT_MAIN)
                 surface.blit(lbl, lbl.get_rect(center=rect.center))
             elif action.startswith("item_kind:"):
                 kind = action.split(":", 1)[1]
                 active = (sel.get("props") or {}).get("kind", "coin") == kind
-                pygame.draw.rect(surface, CARD_SELECTED if active else CARD_BG, rect, border_radius=4)
-                pygame.draw.rect(surface, HIGHLIGHT_COL if active else BORDER_COL, rect, 1, border_radius=4)
+                draw_squircle(surface, CARD_SELECTED if active else CARD_BG, rect, HIGHLIGHT_COL if active else BORDER_COL, 1)
                 lbl = self.font_xs.render(kind.capitalize(), True, HIGHLIGHT_COL if active else TEXT_MAIN)
                 surface.blit(lbl, lbl.get_rect(center=rect.center))
             elif action.startswith("enemy_kind:"):
                 kind = action.split(":", 1)[1]
                 active = (sel.get("props") or {}).get("kind", "slime") == kind
-                pygame.draw.rect(surface, CARD_SELECTED if active else CARD_BG, rect, border_radius=4)
-                pygame.draw.rect(surface, HIGHLIGHT_COL if active else BORDER_COL, rect, 1, border_radius=4)
+                draw_squircle(surface, CARD_SELECTED if active else CARD_BG, rect, HIGHLIGHT_COL if active else BORDER_COL, 1)
                 lbl = self.font_xs.render(kind.replace("goblin_", "g_"), True, HIGHLIGHT_COL if active else TEXT_MAIN)
                 surface.blit(lbl, lbl.get_rect(center=rect.center))
 
@@ -2378,19 +2793,27 @@ class LevelEditorApp:
         surface.blit(self.font_xs.render("DEFAULT COLLISION ROLE:", True, TEXT_DIM), (rx, TOPBAR_H + 372))
         surface.blit(self.font_xs.render("PLACEMENT SCALE:", True, TEXT_DIM), (rx, TOPBAR_H + 468))
 
-        # Draw all Slicer buttons.
+        # Draw all Slicer buttons as squircles.
         for rect, action in self._get_slicer_buttons():
             if action.startswith("sheet:"):
                 idx = int(action.split(":")[1])
                 active = (self.active_sheet_idx % max(1, len(self.sheet_files))) == idx
-                pygame.draw.rect(surface, CARD_SELECTED if active else CARD_BG, rect, border_radius=5)
-                pygame.draw.rect(surface, HIGHLIGHT_COL if active else BORDER_COL, rect, 2 if active else 1, border_radius=5)
-                lbl = self.font_sm.render(self.sheet_files[idx], True, HIGHLIGHT_COL if active else TEXT_MAIN)
+                draw_squircle(
+                    surface,
+                    CARD_SELECTED if active else CARD_BG,
+                    rect,
+                    HIGHLIGHT_COL if active else BORDER_COL,
+                    2 if active else 1,
+                )
+                lbl = self.font_xs.render(self.sheet_files[idx][:16], True, HIGHLIGHT_COL if active else TEXT_MAIN)
+                surface.blit(lbl, lbl.get_rect(center=rect.center))
+            elif action == "add_sheet":
+                draw_squircle(surface, (42, 68, 108), rect, ACCENT_BLUE, 1)
+                lbl = self.font_xs.render("+ Add Sheet", True, TEXT_MAIN)
                 surface.blit(lbl, lbl.get_rect(center=rect.center))
             elif action in ("zoom_out", "zoom_in", "toggle_predefined"):
                 active = action == "toggle_predefined" and self.slicer_show_predefined
-                pygame.draw.rect(surface, CARD_SELECTED if active else CARD_BG, rect, border_radius=5)
-                pygame.draw.rect(surface, HIGHLIGHT_COL if active else BORDER_COL, rect, 1, border_radius=5)
+                draw_squircle(surface, CARD_SELECTED if active else CARD_BG, rect, HIGHLIGHT_COL if active else BORDER_COL, 1)
                 txt = (
                     "- Zoom"
                     if action == "zoom_out"
@@ -2406,27 +2829,29 @@ class LevelEditorApp:
                     "toggle_strict_bg": ("Strict BG Match", self.slicer_strict_bg),
                 }
                 label, on = state_map[action]
-                pygame.draw.rect(surface, CARD_SELECTED if on else CARD_BG, rect, border_radius=5)
-                pygame.draw.rect(surface, ACCENT_GREEN if on else BORDER_COL, rect, 1, border_radius=5)
+                draw_squircle(surface, CARD_SELECTED if on else CARD_BG, rect, ACCENT_GREEN if on else BORDER_COL, 1)
                 lbl = self.font_xs.render(f"[{'x' if on else ' '}] {label}", True, ACCENT_GREEN if on else TEXT_DIM)
                 surface.blit(lbl, lbl.get_rect(center=rect.center))
             elif action == "focus_name":
-                pygame.draw.rect(surface, (16, 20, 30), rect, border_radius=5)
-                pygame.draw.rect(surface, HIGHLIGHT_COL if self.slicer_editing_name else BORDER_COL, rect, 2 if self.slicer_editing_name else 1, border_radius=5)
+                draw_squircle(
+                    surface,
+                    (16, 20, 30),
+                    rect,
+                    HIGHLIGHT_COL if self.slicer_editing_name else BORDER_COL,
+                    2 if self.slicer_editing_name else 1,
+                )
                 cursor = "_" if self.slicer_editing_name and (pygame.time.get_ticks() // 400) % 2 == 0 else ""
                 lbl = self.font_sm.render(self.slicer_name_text + cursor, True, TEXT_MAIN)
                 surface.blit(lbl, (rect.x + 8, rect.y + 5))
             elif action == "auto_name":
-                pygame.draw.rect(surface, CARD_BG, rect, border_radius=5)
-                pygame.draw.rect(surface, BORDER_COL, rect, 1, border_radius=5)
+                draw_squircle(surface, CARD_BG, rect, BORDER_COL, 1)
                 lbl = self.font_xs.render("Next #", True, TEXT_MAIN)
                 surface.blit(lbl, lbl.get_rect(center=rect.center))
             elif action.startswith("slicer_type:"):
                 otype = action.split(":", 1)[1]
                 active = self.slicer_default_type == otype
                 tcol = TYPE_COLORS.get(otype, BORDER_COL)
-                pygame.draw.rect(surface, CARD_SELECTED if active else CARD_BG, rect, border_radius=5)
-                pygame.draw.rect(surface, tcol if active else BORDER_COL, rect, 2 if active else 1, border_radius=5)
+                draw_squircle(surface, CARD_SELECTED if active else CARD_BG, rect, tcol if active else BORDER_COL, 2 if active else 1)
                 lbl = self.font_xs.render(TYPE_LABELS[otype], True, tcol if active else TEXT_DIM)
                 surface.blit(lbl, lbl.get_rect(center=rect.center))
             elif action.startswith("scale:"):
@@ -2438,19 +2863,143 @@ class LevelEditorApp:
                     "original": "Original Size",
                     "wide_128": "Wide 128x64",
                 }
-                pygame.draw.rect(surface, CARD_SELECTED if active else CARD_BG, rect, border_radius=5)
-                pygame.draw.rect(surface, HIGHLIGHT_COL if active else BORDER_COL, rect, 2 if active else 1, border_radius=5)
+                draw_squircle(
+                    surface,
+                    CARD_SELECTED if active else CARD_BG,
+                    rect,
+                    HIGHLIGHT_COL if active else BORDER_COL,
+                    2 if active else 1,
+                )
                 lbl = self.font_xs.render(slabels[skey], True, HIGHLIGHT_COL if active else TEXT_DIM)
                 surface.blit(lbl, lbl.get_rect(center=rect.center))
             elif action == "save_slice":
-                pygame.draw.rect(surface, (42, 92, 58), rect, border_radius=6)
-                pygame.draw.rect(surface, ACCENT_GREEN, rect, 2, border_radius=6)
+                draw_squircle(surface, (42, 92, 58), rect, ACCENT_GREEN, 2)
                 lbl = self.font_sm.render("Slice & Save to Custom Palette (Enter)", True, TEXT_MAIN)
                 surface.blit(lbl, lbl.get_rect(center=rect.center))
             elif action == "save_and_place":
-                pygame.draw.rect(surface, (42, 68, 108), rect, border_radius=6)
-                pygame.draw.rect(surface, ACCENT_BLUE, rect, 2, border_radius=6)
+                draw_squircle(surface, (42, 68, 108), rect, ACCENT_BLUE, 2)
                 lbl = self.font_sm.render("Slice & Switch to Level Editor", True, TEXT_MAIN)
+                surface.blit(lbl, lbl.get_rect(center=rect.center))
+
+    # ------------------------------------------------------------------
+    # Draw Image Importer Modal
+    # ------------------------------------------------------------------
+    def _draw_image_modal(self, surface: pygame.Surface) -> None:
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((8, 10, 16, 195))
+        surface.blit(overlay, (0, 0))
+
+        modal_rect, list_rect, btns = self._get_image_modal_rects()
+        pygame.draw.rect(surface, PANEL_BG, modal_rect, border_radius=8)
+        pygame.draw.rect(surface, HIGHLIGHT_COL, modal_rect, 2, border_radius=8)
+
+        title_lbl = self.font_md.render("ADD ADDITIONAL IMAGES & SPRITE SHEETS", True, HIGHLIGHT_COL)
+        surface.blit(title_lbl, (modal_rect.x + 18, modal_rect.y + 12))
+
+        sub_lbl = self.font_xs.render(
+            f"Folder: {self.modal_dir}   (Tip: You can also drag-and-drop image files onto the window!)",
+            True,
+            TEXT_DIM,
+        )
+        surface.blit(sub_lbl, (modal_rect.x + 18, modal_rect.y + 32))
+
+        # File & folder list box
+        pygame.draw.rect(surface, (16, 20, 30), list_rect, border_radius=6)
+        pygame.draw.rect(surface, BORDER_COL, list_rect, 1, border_radius=6)
+
+        mx, my = pygame.mouse.get_pos()
+        my -= BAR_HEIGHT
+
+        prev_clip = surface.get_clip()
+        surface.set_clip(list_rect.inflate(-4, -4))
+        for idx, (name, is_dir) in enumerate(self.modal_entries):
+            row_y = list_rect.y + 6 + idx * 28 - self.modal_scroll
+            if row_y + 26 < list_rect.top or row_y > list_rect.bottom:
+                continue
+            row_rect = pygame.Rect(list_rect.x + 6, row_y, list_rect.width - 12, 25)
+            full_p = os.path.join(self.modal_dir, name)
+            is_sel = not is_dir and os.path.abspath(full_p) == os.path.abspath(self.modal_selected_path or "")
+            is_hov = row_rect.collidepoint(mx, my)
+            if is_sel or is_hov:
+                pygame.draw.rect(surface, CARD_SELECTED if is_sel else CARD_HOVER, row_rect, border_radius=4)
+                pygame.draw.rect(surface, HIGHLIGHT_COL if is_sel else BORDER_COL, row_rect, 1, border_radius=4)
+            prefix = "[DIR] " if is_dir else "[IMG] "
+            col = HIGHLIGHT_COL if is_dir else (ACCENT_GREEN if is_sel else TEXT_MAIN)
+            rlbl = self.font_xs.render(f"{prefix}{name}", True, col)
+            surface.blit(rlbl, (row_rect.x + 8, row_rect.y + 5))
+        surface.set_clip(prev_clip)
+
+        # Right side image preview box
+        rx = list_rect.right + 18
+        rw = modal_rect.right - 18 - rx
+        preview_rect = pygame.Rect(rx, list_rect.y, rw, list_rect.height - 134)
+        draw_checkerboard(surface, preview_rect, cell=10)
+        pygame.draw.rect(surface, BORDER_COL, preview_rect, 1, border_radius=6)
+
+        if self.modal_preview_surf is not None:
+            iw, ih = self.modal_preview_surf.get_size()
+            sc = min((preview_rect.width - 16) / max(1, iw), (preview_rect.height - 32) / max(1, ih), 3.0)
+            tw, th = max(4, int(round(iw * sc))), max(4, int(round(ih * sc)))
+            scaled = pygame.transform.smoothscale(self.modal_preview_surf, (tw, th))
+            surface.blit(scaled, scaled.get_rect(center=(preview_rect.centerx, preview_rect.centery - 8)))
+            info_lbl = self.font_xs.render(
+                f"{os.path.basename(self.modal_selected_path)} ({iw}x{ih}px)", True, HIGHLIGHT_COL
+            )
+            surface.blit(info_lbl, info_lbl.get_rect(midbottom=(preview_rect.centerx, preview_rect.bottom - 6)))
+        else:
+            empty_lbl = self.font_xs.render("Select an image file on the left to preview", True, TEXT_DIM)
+            surface.blit(empty_lbl, empty_lbl.get_rect(center=preview_rect.center))
+
+        # Modal buttons (squircles)
+        for rect, action in btns:
+            hovered = rect.collidepoint(mx, my)
+            if action == "close":
+                draw_squircle(surface, (110, 36, 44) if hovered else (82, 28, 36), rect, ACCENT_RED, 1)
+                lbl = self.font_xs.render("X", True, TEXT_MAIN)
+                surface.blit(lbl, lbl.get_rect(center=rect.center))
+            elif action.startswith("dir:"):
+                target = action.split(":", 1)[1]
+                parent_dir = os.path.dirname(self.modal_dir.rstrip(os.sep)) or os.sep
+                if rect.width == 52 and target == parent_dir:
+                    txt = ".. Up"
+                else:
+                    txt = os.path.basename(target) or "Project"
+                    if target == os.path.dirname(self.assets_dir):
+                        txt = "Project"
+                    elif target == self.assets_dir:
+                        txt = "Assets"
+                    elif target == os.path.expanduser("~"):
+                        txt = "Home"
+                active = os.path.abspath(target) == os.path.abspath(self.modal_dir)
+                draw_squircle(
+                    surface,
+                    CARD_SELECTED if active else (CARD_HOVER if hovered else CARD_BG),
+                    rect,
+                    HIGHLIGHT_COL if active else BORDER_COL,
+                    1,
+                )
+                lbl = self.font_xs.render(txt, True, HIGHLIGHT_COL if active else TEXT_MAIN)
+                surface.blit(lbl, lbl.get_rect(center=rect.center))
+            elif action == "os_dialog":
+                draw_squircle(surface, (42, 68, 108) if not hovered else (55, 86, 132), rect, ACCENT_BLUE, 1)
+                lbl = self.font_xs.render("OS File Dialog...", True, TEXT_MAIN)
+                surface.blit(lbl, lbl.get_rect(center=rect.center))
+            elif action == "toggle_rem_bg":
+                on = self.modal_remove_bg
+                draw_squircle(surface, CARD_SELECTED if on else CARD_BG, rect, ACCENT_GREEN if on else BORDER_COL, 1)
+                lbl = self.font_xs.render(
+                    f"[{'x' if on else ' '}] Auto-Remove Solid Background & Trim",
+                    True,
+                    ACCENT_GREEN if on else TEXT_DIM,
+                )
+                surface.blit(lbl, lbl.get_rect(center=rect.center))
+            elif action == "import_sprite":
+                draw_squircle(surface, (42, 92, 58) if not hovered else (52, 114, 72), rect, ACCENT_GREEN, 2)
+                lbl = self.font_sm.render("+ Add to Custom Palette (Sprite)", True, TEXT_MAIN)
+                surface.blit(lbl, lbl.get_rect(center=rect.center))
+            elif action == "import_sheet":
+                draw_squircle(surface, (42, 68, 108) if not hovered else (55, 86, 132), rect, ACCENT_BLUE, 2)
+                lbl = self.font_sm.render("Open as Sprite Sheet in Slicer", True, TEXT_MAIN)
                 surface.blit(lbl, lbl.get_rect(center=rect.center))
 
     # ------------------------------------------------------------------
@@ -2481,10 +3030,9 @@ class LevelEditorApp:
             self.font_lg,
         )
 
-        # Floating "Stop Playtest" pill at top center.
+        # Floating "Stop Playtest" squircle pill at top center.
         stop_btn = pygame.Rect(SCREEN_WIDTH // 2 - 110, 10, 220, 34)
-        pygame.draw.rect(surface, (145, 38, 46), stop_btn, border_radius=8)
-        pygame.draw.rect(surface, HIGHLIGHT_COL, stop_btn, 2, border_radius=8)
+        draw_squircle(surface, (145, 38, 46), stop_btn, HIGHLIGHT_COL, 2)
         lbl = self.font_sm.render("■ Return to Editor (Esc/F5)", True, TEXT_MAIN)
         surface.blit(lbl, lbl.get_rect(center=stop_btn.center))
 

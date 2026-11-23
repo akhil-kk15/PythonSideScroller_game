@@ -25,6 +25,21 @@ def default_level_json_path(level_number: int) -> str:
     return os.path.join(get_levels_dir(), f"level_{level_number}.json")
 
 
+def get_available_levels() -> list[int]:
+    """Return a sorted list of all available level numbers (always includes 1 and 2, plus any saved level_<N>.json)."""
+    levels = {1, 2}
+    ldir = get_levels_dir()
+    if os.path.isdir(ldir):
+        for fname in os.listdir(ldir):
+            if fname.startswith("level_") and fname.endswith(".json"):
+                num_str = fname[len("level_") : -len(".json")]
+                if num_str.isdigit():
+                    num = int(num_str)
+                    if num >= 1:
+                        levels.add(num)
+    return sorted(levels)
+
+
 def _scale_to_size(img: pygame.Surface, w: int, h: int) -> pygame.Surface:
     return pygame.transform.smoothscale(img, (max(1, w), max(1, h)))
 
@@ -919,10 +934,22 @@ class Level:
         else:
             if level_number == 1:
                 self._build_level_1()
-            else:
+            elif level_number == 2:
                 self._build_level_2()
+            else:
+                self._build_custom_template()
             self._raw_solid_rects = [r.copy() for r in self.solid_rects]
             self._carve_ladder_openings()
+
+    def _build_custom_template(self) -> None:
+        """Starter template for newly added levels (Level 3+)."""
+        self.spawn_pos = (96, 9 * TILE_SIZE - 10)
+        self.banner_message = f"LEVEL {self.level_number}: Reach the Cave Exit!"
+        self._add_ground_segment(0, 14, row=10)
+        self._add_ground_segment(42, 56, row=10)
+        exit_x = 52 * TILE_SIZE
+        exit_y = 8 * TILE_SIZE
+        self.cave_exit_rect = pygame.Rect(exit_x + 24, exit_y + 24, TILE_SIZE * 2 - 48, TILE_SIZE * 2 - 24)
 
     # Level-building helpers.
     def _add_ground_segment(self, start_col: int, end_col: int, row: int = 10, deep_rows: int = 2) -> None:

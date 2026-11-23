@@ -40,5 +40,17 @@
     "w": 64,
     "h": 64,
     "layer": 1
+  },
+  "stronghold_far": {
+    "obj_type": "solid",
+    "w": 256,
+    "h": 64,
+    "layer": 1
+  },
+  "stronghold_mid": {
+    "obj_type": "solid",
+    "w": 256,
+    "h": 64,
+    "layer": 1
   }
 }
