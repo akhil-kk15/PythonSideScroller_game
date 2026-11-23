@@ -214,6 +214,7 @@ def create_menus(screen_size, icons=None):
             "KNIGHT'S QUEST",
             [
                 ("Start Game", "start", "key"),
+                ("Level Editor", "level_editor", "coin"),
                 ("Controls", "controls", "gem"),
                 ("Quit", "quit", "heart_empty"),
             ],

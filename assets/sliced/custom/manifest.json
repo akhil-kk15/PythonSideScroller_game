@@ -1,0 +1,44 @@
+{
+  "slice_01": {
+    "obj_type": "solid",
+    "w": 64,
+    "h": 64,
+    "layer": 1
+  },
+  "slice_02": {
+    "obj_type": "solid",
+    "w": 64,
+    "h": 64,
+    "layer": 1
+  },
+  "slice_03": {
+    "obj_type": "solid",
+    "w": 64,
+    "h": 64,
+    "layer": 1
+  },
+  "slice_04": {
+    "obj_type": "solid",
+    "w": 64,
+    "h": 64,
+    "layer": 1
+  },
+  "slice_05": {
+    "obj_type": "solid",
+    "w": 64,
+    "h": 64,
+    "layer": 1
+  },
+  "slice_06": {
+    "obj_type": "solid",
+    "w": 64,
+    "h": 64,
+    "layer": 1
+  },
+  "slice_07": {
+    "obj_type": "solid",
+    "w": 64,
+    "h": 64,
+    "layer": 1
+  }
+}

@@ -1,13 +1,28 @@
 """Level, entity, and tilemap management."""
 
+import json
 import math
 import os
+import sys
 import pygame
 
 import sounds
 from background import load_background
 
 TILE_SIZE = 64
+
+
+def get_levels_dir() -> str:
+    """Return the directory where custom/edited level JSON files are saved."""
+    base_dir = os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
+    if not os.access(base_dir, os.W_OK):
+        base_dir = os.path.expanduser("~")
+    return os.path.join(base_dir, "levels")
+
+
+def default_level_json_path(level_number: int) -> str:
+    """Return the default JSON file path for a given level number."""
+    return os.path.join(get_levels_dir(), f"level_{level_number}.json")
 
 
 def _scale_to_size(img: pygame.Surface, w: int, h: int) -> pygame.Surface:
@@ -31,7 +46,12 @@ class AssetLibrary:
         self.enemies: dict[str, list[pygame.Surface]] = {}
         self.ui: dict[str, pygame.Surface] = {}
         self.vfx: dict[str, pygame.Surface] = {}
+        self.custom: dict[str, pygame.Surface] = {}
+        self._surface_to_ref: dict[int, str] = {}
+        self._transform_cache: dict[tuple, pygame.Surface] = {}
         self._load_all()
+        self.reload_custom()
+        self._rebuild_ref_index()
 
         # Parallax backgrounds, one per level (see background.py).
         backgrounds_dir = os.path.join(os.path.dirname(sliced_dir), "backgrounds")
@@ -166,6 +186,134 @@ class AssetLibrary:
         # Visual effects.
         for vname in ("hit_burst", "star_hit", "dust_1", "dust_2", "smoke_puff", "fire_spark"):
             self.vfx[vname] = _scale_to_size(self._load_raw("vfx", vname), 48, 48)
+
+    def reload_custom(self) -> None:
+        """Load any custom-sliced PNG sprites from `assets/sliced/custom/`."""
+        custom_dir = os.path.join(self.sliced_dir, "custom")
+        if os.path.isdir(custom_dir):
+            for fname in sorted(os.listdir(custom_dir)):
+                if fname.lower().endswith(".png"):
+                    key = os.path.splitext(fname)[0]
+                    path = os.path.join(custom_dir, fname)
+                    try:
+                        surf = pygame.image.load(path).convert_alpha()
+                        self.custom[key] = surf
+                    except pygame.error:
+                        pass
+        self._rebuild_ref_index()
+
+    def _rebuild_ref_index(self) -> None:
+        """Map surface object IDs back to string references for level serialization."""
+        self._surface_to_ref.clear()
+        for k, s in self.tiles.items():
+            self._surface_to_ref[id(s)] = f"tiles:{k}"
+        for k, s in self.props.items():
+            self._surface_to_ref[id(s)] = f"props:{k}"
+        for k, s in self.custom.items():
+            self._surface_to_ref[id(s)] = f"custom:{k}"
+        for k, frames in self.items.items():
+            for s in frames:
+                self._surface_to_ref[id(s)] = f"items:{k}"
+
+    def identify_surface(self, surf: pygame.Surface) -> str:
+        """Return the reference key (e.g. 'tiles:grass_1') for a given Surface."""
+        return self._surface_to_ref.get(id(surf), "tiles:grass_1")
+
+    def get_base_surface(self, ref: str) -> pygame.Surface | None:
+        """Resolve a string reference (e.g. 'tiles:grass_1', 'props:crate', 'custom:slice_1') to a Surface."""
+        if not ref or ref.startswith("special:"):
+            return None
+        if ":" in ref:
+            cat, key = ref.split(":", 1)
+        else:
+            cat, key = "tiles", ref
+
+        if cat == "tiles":
+            if key in self.tiles:
+                return self.tiles[key]
+            raw_path = os.path.join(self.sliced_dir, "tiles", f"{key}.png")
+            if os.path.exists(raw_path):
+                s = pygame.image.load(raw_path).convert_alpha()
+                self.tiles[key] = s
+                self._surface_to_ref[id(s)] = f"tiles:{key}"
+                return s
+        elif cat == "props":
+            if key in self.props:
+                return self.props[key]
+            raw_path = os.path.join(self.sliced_dir, "props", f"{key}.png")
+            if os.path.exists(raw_path):
+                s = pygame.image.load(raw_path).convert_alpha()
+                self.props[key] = s
+                self._surface_to_ref[id(s)] = f"props:{key}"
+                return s
+        elif cat == "custom":
+            if key in self.custom:
+                return self.custom[key]
+            raw_path = os.path.join(self.sliced_dir, "custom", f"{key}.png")
+            if os.path.exists(raw_path):
+                s = pygame.image.load(raw_path).convert_alpha()
+                self.custom[key] = s
+                self._surface_to_ref[id(s)] = f"custom:{key}"
+                return s
+        elif cat == "items":
+            if key in self.items and self.items[key]:
+                return self.items[key][0]
+            raw_path = os.path.join(self.sliced_dir, "items", f"{key}.png")
+            if os.path.exists(raw_path):
+                return pygame.image.load(raw_path).convert_alpha()
+        elif cat == "enemies":
+            enemy_map = {
+                "goblin_warrior": "goblin_warrior_walk",
+                "slime": "slime",
+                "bat": "bat",
+                "goblin_archer": "goblin_archer",
+                "goblin_brute": "goblin_brute",
+                "goblin_scout": "goblin_scout",
+            }
+            ekey = enemy_map.get(key, key)
+            if ekey in self.enemies and self.enemies[ekey]:
+                return self.enemies[ekey][0]
+            raw_path = os.path.join(self.sliced_dir, "enemies", f"{key}.png")
+            if os.path.exists(raw_path):
+                return pygame.image.load(raw_path).convert_alpha()
+        elif cat == "ui" and key in self.ui:
+            return self.ui[key]
+        elif cat == "vfx" and key in self.vfx:
+            return self.vfx[key]
+        elif cat == "file":
+            raw_path = os.path.join(self.sliced_dir, key)
+            if os.path.exists(raw_path):
+                return pygame.image.load(raw_path).convert_alpha()
+        return None
+
+    def get_surface(
+        self,
+        ref: str,
+        w: int | None = None,
+        h: int | None = None,
+        flip_x: bool = False,
+        flip_y: bool = False,
+    ) -> pygame.Surface | None:
+        """Return a (possibly scaled and flipped) Surface for the given reference."""
+        base = self.get_base_surface(ref)
+        if base is None:
+            return None
+        bw, bh = base.get_size()
+        tw = w if (w is not None and w > 0) else bw
+        th = h if (h is not None and h > 0) else bh
+        if tw == bw and th == bh and not flip_x and not flip_y:
+            return base
+        cache_key = (ref, tw, th, bool(flip_x), bool(flip_y))
+        if cache_key in self._transform_cache:
+            return self._transform_cache[cache_key]
+        out = base
+        if tw != bw or th != bh:
+            out = _scale_to_size(out, tw, th)
+        if flip_x or flip_y:
+            out = pygame.transform.flip(out, bool(flip_x), bool(flip_y))
+        self._transform_cache[cache_key] = out
+        self._surface_to_ref[id(out)] = ref
+        return out
 
 
 class VFXParticle:
@@ -708,13 +856,21 @@ class Level:
     collectibles, and enemies.
     """
 
-    def __init__(self, level_number: int, assets: AssetLibrary):
+    def __init__(
+        self,
+        level_number: int,
+        assets: AssetLibrary,
+        json_path: str | None = None,
+        use_default: bool = False,
+        data: dict | None = None,
+    ):
         self.level_number = level_number
+        self.background_id = level_number if level_number in (1, 2) else 1
         self.assets = assets
         self.level_name = (
             "Level 1: Emerald Grasslands"
             if level_number == 1
-            else "Level 2: Dark Forest"
+            else ("Level 2: Dark Forest" if level_number == 2 else f"Level {level_number}: Custom")
         )
         self.width = 56 * TILE_SIZE  # 3584 px wide
         self.height = 720
@@ -725,6 +881,7 @@ class Level:
         self.ladder_tiles: list[tuple[pygame.Surface, int, int]] = []
         self.ladder_specs: list[tuple[int, int, int]] = []
         self.solid_rects: list[pygame.Rect] = []
+        self._raw_solid_rects: list[pygame.Rect] = []
         self.one_way_rects: list[pygame.Rect] = []
         self.ladder_rects: list[pygame.Rect] = []
         self.slope_tiles: list[tuple[pygame.Rect, str]] = []
@@ -747,13 +904,25 @@ class Level:
         self.spawn_pos = (100, self.ground_y - 80)
         self.banner_message = ""
         self.banner_timer = 150
+        self.editor_objects: list[dict] = []
 
-        if level_number == 1:
-            self._build_level_1()
+        resolved_json = json_path
+        if resolved_json is None and not use_default and data is None:
+            candidate = default_level_json_path(level_number)
+            if os.path.exists(candidate):
+                resolved_json = candidate
+
+        if data is not None:
+            self.load_from_dict(data)
+        elif resolved_json is not None and os.path.exists(resolved_json):
+            self.load_json(resolved_json)
         else:
-            self._build_level_2()
-
-        self._carve_ladder_openings()
+            if level_number == 1:
+                self._build_level_1()
+            else:
+                self._build_level_2()
+            self._raw_solid_rects = [r.copy() for r in self.solid_rects]
+            self._carve_ladder_openings()
 
     # Level-building helpers.
     def _add_ground_segment(self, start_col: int, end_col: int, row: int = 10, deep_rows: int = 2) -> None:
@@ -1139,9 +1308,354 @@ class Level:
             return self.solid_rects + [self.locked_door["rect"]]
         return self.solid_rects
 
+    @staticmethod
+    def _merge_solid_rects(rects: list[pygame.Rect]) -> list[pygame.Rect]:
+        """Merge adjacent horizontal and vertical solid rects to avoid internal tile seams."""
+        if not rects:
+            return []
+        # Step 1: merge horizontally contiguous rects with identical top and height.
+        by_row = sorted([r.copy() for r in rects], key=lambda r: (r.top, r.height, r.left))
+        horiz_merged: list[pygame.Rect] = []
+        for r in by_row:
+            if (
+                horiz_merged
+                and horiz_merged[-1].top == r.top
+                and horiz_merged[-1].height == r.height
+                and horiz_merged[-1].right >= r.left
+            ):
+                horiz_merged[-1].width = max(horiz_merged[-1].right, r.right) - horiz_merged[-1].left
+            else:
+                horiz_merged.append(r)
+
+        # Step 2: merge vertically contiguous rects with identical left and width.
+        by_col = sorted(horiz_merged, key=lambda r: (r.left, r.width, r.top))
+        vert_merged: list[pygame.Rect] = []
+        for r in by_col:
+            if (
+                vert_merged
+                and vert_merged[-1].left == r.left
+                and vert_merged[-1].width == r.width
+                and vert_merged[-1].bottom >= r.top
+            ):
+                vert_merged[-1].height = max(vert_merged[-1].bottom, r.bottom) - vert_merged[-1].top
+            else:
+                vert_merged.append(r)
+        return vert_merged
+
+    def extract_editor_objects(self) -> list[dict]:
+        """Convert this Level's current state into a list of unified editor object dicts."""
+        if self.editor_objects:
+            return [json.loads(json.dumps(o)) for o in self.editor_objects]
+
+        objs: list[dict] = []
+        next_id = 1
+
+        def add_obj(
+            obj_type: str,
+            ref: str,
+            x: int,
+            y: int,
+            w: int,
+            h: int,
+            layer: int = 1,
+            flip_x: bool = False,
+            flip_y: bool = False,
+            props: dict | None = None,
+        ) -> None:
+            nonlocal next_id
+            objs.append(
+                {
+                    "id": next_id,
+                    "obj_type": obj_type,
+                    "ref": ref,
+                    "x": int(x),
+                    "y": int(y),
+                    "w": int(w),
+                    "h": int(h),
+                    "flip_x": bool(flip_x),
+                    "flip_y": bool(flip_y),
+                    "layer": int(layer),
+                    "props": props or {},
+                }
+            )
+            next_id += 1
+
+        # 1. Background decorations (layer 0).
+        for surf, dx, dy in self.decorations:
+            ref = self.assets.identify_surface(surf)
+            add_obj("decoration", ref, dx, dy, surf.get_width(), surf.get_height(), layer=0)
+
+        # 2. Visual tiles (solid, one_way, spike, slope, or layer-1 decoration).
+        raw_solids = self._raw_solid_rects if self._raw_solid_rects else self.solid_rects
+        slope_map = {(sr.x, sr.y): sdir for sr, sdir in self.slope_tiles}
+        for surf, tx, ty in self.visual_tiles:
+            ref = self.assets.identify_surface(surf)
+            w, h = surf.get_size()
+            if ref in ("tiles:bridge_full", "tiles:bridge_plank"):
+                add_obj("one_way", ref, tx, ty, w, h, layer=1)
+            elif ref in ("tiles:spike_1", "tiles:spike_2"):
+                add_obj("spike", ref, tx, ty, w, h, layer=1)
+            elif (tx, ty) in slope_map or ref == "tiles:hill_slope":
+                sdir = slope_map.get((tx, ty), "down_right")
+                otype = "slope_down_right" if sdir == "down_right" else "slope_up_right"
+                add_obj(otype, ref, tx, ty, w, h, layer=1)
+            else:
+                cx, cy = tx + w // 2, ty + h // 2
+                is_solid = any(sr.collidepoint(cx, cy) for sr in raw_solids)
+                add_obj("solid" if is_solid else "decoration", ref, tx, ty, w, h, layer=1)
+
+        # 3. Ladders.
+        for surf, lx, ly in self.ladder_tiles:
+            ref = self.assets.identify_surface(surf)
+            add_obj("ladder", ref, lx, ly, surf.get_width(), surf.get_height(), layer=1)
+
+        # 4. Props: levers, chests, destructibles, locked door.
+        for lv in self.levers:
+            r = lv["rect"]
+            add_obj("lever", "props:lever_off", r.x, r.y, r.width, r.height, layer=2)
+        for ch in self.chests:
+            r = ch["rect"]
+            add_obj("chest", "props:chest_closed", r.x, r.y, r.width, r.height, layer=2)
+        for d in self.destructibles:
+            r = d["rect"]
+            kind = d.get("kind", "crate")
+            ref = d.get("ref", f"props:{kind}")
+            add_obj(
+                "destructible",
+                ref,
+                r.x,
+                r.y,
+                r.width,
+                r.height,
+                layer=2,
+                props={"kind": kind, "drop": d.get("drop", "coin")},
+            )
+        if self.locked_door:
+            r = self.locked_door["rect"]
+            add_obj("locked_door", "props:door_locked", r.x, r.y, r.width, r.height, layer=2)
+
+        # 5. Collectibles.
+        for item in self.collectibles:
+            add_obj(
+                "collectible",
+                f"items:{item.kind}",
+                item.rect.x,
+                int(item.base_y),
+                item.rect.width,
+                item.rect.height,
+                layer=2,
+                props={"kind": item.kind},
+            )
+
+        # 6. Enemies.
+        for en in self.enemies:
+            add_obj(
+                "enemy",
+                f"enemies:{en.kind}",
+                en.rect.x,
+                en.rect.y,
+                en.rect.width,
+                en.rect.height,
+                layer=2,
+                props={
+                    "kind": en.kind,
+                    "patrol_min_x": int(en.patrol_min_x),
+                    "patrol_max_x": int(en.patrol_max_x),
+                },
+            )
+
+        # 7. Spawn point & Cave Exit.
+        add_obj("spawn", "special:spawn", self.spawn_pos[0], self.spawn_pos[1], 38, 62, layer=2)
+        exit_x = self.cave_exit_rect.x - 24
+        exit_y = self.cave_exit_rect.y - 24
+        add_obj("exit", "tiles:cave_exit", exit_x, exit_y, TILE_SIZE * 2, TILE_SIZE * 2, layer=0)
+
+        return objs
+
+    def _compile_editor_objects(self, editor_objects: list[dict]) -> None:
+        """Populate runtime tiles, collisions, props, collectibles, and enemies from editor_objects."""
+        self.editor_objects = [json.loads(json.dumps(o)) for o in editor_objects]
+        self.visual_tiles.clear()
+        self.ladder_tiles.clear()
+        self.ladder_specs.clear()
+        self.solid_rects.clear()
+        self._raw_solid_rects.clear()
+        self.one_way_rects.clear()
+        self.ladder_rects.clear()
+        self.slope_tiles.clear()
+        self.spike_rects.clear()
+        self.collectibles.clear()
+        self.enemies.clear()
+        self.projectiles.clear()
+        self.particles.clear()
+        self.destructibles.clear()
+        self.chests.clear()
+        self.levers.clear()
+        self.decorations.clear()
+        self.locked_door = None
+
+        raw_solids: list[pygame.Rect] = []
+        raw_ladders: list[pygame.Rect] = []
+
+        # Sort by layer then original order so background/decorations draw behind foreground.
+        sorted_objs = sorted(enumerate(editor_objects), key=lambda pair: (pair[1].get("layer", 1), pair[0]))
+
+        for _, obj in sorted_objs:
+            otype = obj.get("obj_type", "solid")
+            ref = obj.get("ref", "")
+            x = int(obj.get("x", 0))
+            y = int(obj.get("y", 0))
+            w = max(4, int(obj.get("w", TILE_SIZE)))
+            h = max(4, int(obj.get("h", TILE_SIZE)))
+            flip_x = bool(obj.get("flip_x", False))
+            flip_y = bool(obj.get("flip_y", False))
+            layer = int(obj.get("layer", 1))
+            props = obj.get("props") or {}
+
+            if otype == "spawn":
+                self.spawn_pos = (x, y)
+                continue
+            if otype == "exit":
+                self.cave_exit_rect = pygame.Rect(x + 24, y + 24, max(16, w - 48), max(16, h - 24))
+                continue
+
+            surf = self.assets.get_surface(ref, w, h, flip_x=flip_x, flip_y=flip_y)
+
+            if otype == "solid":
+                if surf is not None:
+                    self.visual_tiles.append((surf, x, y))
+                raw_solids.append(pygame.Rect(x, y, w, h))
+            elif otype == "one_way":
+                if surf is not None:
+                    self.visual_tiles.append((surf, x, y))
+                self.one_way_rects.append(pygame.Rect(x, y, w, min(18, h)))
+            elif otype == "ladder":
+                if surf is not None:
+                    self.ladder_tiles.append((surf, x, y))
+                raw_ladders.append(pygame.Rect(x, y, w, h))
+            elif otype == "spike":
+                if surf is not None:
+                    self.visual_tiles.append((surf, x, y))
+                raw_solids.append(pygame.Rect(x, y + 28, w, max(16, h - 16)))
+                self.spike_rects.append(pygame.Rect(x + 6, y + 6, max(8, w - 12), 22))
+            elif otype in ("slope_down_right", "slope_up_right"):
+                if surf is not None:
+                    self.visual_tiles.append((surf, x, y))
+                sdir = "down_right" if otype == "slope_down_right" else "up_right"
+                self.slope_tiles.append((pygame.Rect(x, y, w, h), sdir))
+            elif otype == "decoration":
+                if surf is not None:
+                    if layer <= 0:
+                        self.decorations.append((surf, x, y))
+                    else:
+                        self.visual_tiles.append((surf, x, y))
+            elif otype == "destructible":
+                kind = props.get("kind", "crate" if "barrel" not in ref else "barrel")
+                if kind not in ("crate", "barrel"):
+                    kind = "crate"
+                drop = props.get("drop", "coin")
+                self.destructibles.append(
+                    {"kind": kind, "rect": pygame.Rect(x, y, w, h), "drop": drop, "ref": ref, "surf": surf}
+                )
+            elif otype == "chest":
+                self.chests.append({"rect": pygame.Rect(x, y, w, h), "open": False})
+            elif otype == "lever":
+                self.levers.append({"rect": pygame.Rect(x, y, w, h), "active": False})
+            elif otype == "locked_door":
+                self.locked_door = {"rect": pygame.Rect(x, y, w, h), "open": False}
+            elif otype == "collectible":
+                kind = props.get("kind") or (ref.split(":", 1)[1] if ":" in ref else "coin")
+                if kind not in self.assets.items:
+                    kind = "coin"
+                frames = self.assets.items.get(kind)
+                if not frames and surf is not None:
+                    frames = [surf]
+                if frames:
+                    self.collectibles.append(Collectible(x, y, kind, frames))
+            elif otype == "enemy":
+                kind = props.get("kind") or (ref.split(":", 1)[1] if ":" in ref else "slime")
+                p_min = int(props.get("patrol_min_x", max(0, x - 128)))
+                p_max = int(props.get("patrol_max_x", min(self.width, x + w + 128)))
+                if p_max <= p_min + w:
+                    p_max = p_min + w + 64
+                self.enemies.append(Enemy(x, y + h, kind, p_min, p_max, self.assets))
+
+        self._raw_solid_rects = [r.copy() for r in raw_solids]
+        self.solid_rects = self._merge_solid_rects(raw_solids)
+
+        # Merge vertically contiguous ladder segments into single climbable ladder rects.
+        by_col = sorted(raw_ladders, key=lambda r: (r.left, r.width, r.top))
+        merged_ladders: list[pygame.Rect] = []
+        for r in by_col:
+            if (
+                merged_ladders
+                and abs(merged_ladders[-1].left - r.left) <= 8
+                and merged_ladders[-1].bottom >= r.top - 4
+            ):
+                new_bottom = max(merged_ladders[-1].bottom, r.bottom)
+                merged_ladders[-1].height = new_bottom - merged_ladders[-1].top
+            else:
+                merged_ladders.append(r.copy())
+        self.ladder_rects = merged_ladders
+
+        # Build ladder_specs for each merged ladder and carve openings through solid platforms.
+        for lr in self.ladder_rects:
+            col = lr.centerx // TILE_SIZE
+            top_row = lr.top // TILE_SIZE
+            height_rows = max(1, round(lr.height / TILE_SIZE))
+            self.ladder_specs.append((col, top_row, height_rows))
+        self._carve_ladder_openings()
+
+    def to_dict(self) -> dict:
+        """Serialize the level to a JSON-compatible dictionary."""
+        objs = self.extract_editor_objects()
+        return {
+            "version": 1,
+            "level_number": self.level_number,
+            "background_id": getattr(self, "background_id", self.level_number),
+            "level_name": self.level_name,
+            "width": self.width,
+            "height": self.height,
+            "ground_y": self.ground_y,
+            "spawn_pos": list(self.spawn_pos),
+            "banner_message": self.banner_message,
+            "editor_objects": objs,
+        }
+
+    def load_from_dict(self, data: dict) -> None:
+        """Load the level state from a dictionary."""
+        self.level_number = int(data.get("level_number", self.level_number))
+        self.background_id = int(data.get("background_id", self.level_number if self.level_number in (1, 2) else 1))
+        self.level_name = str(data.get("level_name", self.level_name))
+        self.width = max(1280, int(data.get("width", 56 * TILE_SIZE)))
+        self.height = int(data.get("height", 720))
+        self.ground_y = int(data.get("ground_y", 10 * TILE_SIZE))
+        sp = data.get("spawn_pos", [96, self.ground_y - 80])
+        self.spawn_pos = (int(sp[0]), int(sp[1]))
+        self.banner_message = str(data.get("banner_message", ""))
+        self.banner_timer = 150 if self.banner_message else 0
+        self.assets.reload_custom()
+        editor_objects = data.get("editor_objects", [])
+        self._compile_editor_objects(editor_objects)
+
+    def save_json(self, path: str | None = None) -> str:
+        """Save the level to a JSON file and return the saved file path."""
+        target = path or default_level_json_path(self.level_number)
+        os.makedirs(os.path.dirname(os.path.abspath(target)), exist_ok=True)
+        with open(target, "w", encoding="utf-8") as f:
+            json.dump(self.to_dict(), f, indent=2)
+        return target
+
+    def load_json(self, path: str) -> None:
+        """Load the level from a JSON file."""
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        self.load_from_dict(data)
+
     def draw_background(self, surface, camera_x):
         # Draw the parallax layers of this level.
-        background = self.assets.backgrounds.get(self.level_number)
+        bg_id = getattr(self, "background_id", self.level_number)
+        background = self.assets.backgrounds.get(bg_id) or self.assets.backgrounds.get(1)
         if background is None:
             surface.fill((24, 28, 38))
         else:
@@ -1190,7 +1704,8 @@ class Level:
         # Destructibles.
         for d in self.destructibles:
             drect = d["rect"]
-            surface.blit(self.assets.props[d["kind"]], (drect.x - camera_x, drect.y))
+            dsurf = d.get("surf") or self.assets.props.get(d["kind"], self.assets.props["crate"])
+            surface.blit(dsurf, (drect.x - camera_x, drect.y))
 
         # Locked door.
         if self.locked_door and not self.locked_door["open"]:

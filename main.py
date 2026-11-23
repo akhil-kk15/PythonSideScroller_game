@@ -473,9 +473,18 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
         """Execute a menu button action. Returns True if game_state changed."""
         nonlocal current_level_num, level, player, level_start_stats, level_skip_used
         nonlocal camera_x, current_story, story_next_state, game_state
-        nonlocal controls_return_state, running
+        nonlocal controls_return_state, running, menu_level
         if action is None:
             return False
+        if action == "level_editor":
+            from level_editor import run_editor
+
+            sounds.set_music(False)
+            run_editor(window=window, screen=screen, titlebar=titlebar, initial_level=1)
+            assets.reload_custom()
+            menu_level = Level(1, assets)
+            game_state = open_menu("menu")
+            return True
         if action == "start":
             current_level_num = 1
             level, player = new_game(assets, player_sprites)
@@ -734,9 +743,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=MODE_AUTO,
         help="Controller input backend/mapping mode (default: auto accepts both XInput and DirectInput).",
     )
+    parser.add_argument(
+        "--editor",
+        action="store_true",
+        help="Launch directly into the interactive Level Editor & Sprite Sheet Slicer.",
+    )
     return parser.parse_args(argv)
 
 
 if __name__ == "__main__":
     args = parse_args()
-    run_game(controller_mode=args.controller_mode)
+    if args.editor:
+        from level_editor import run_editor
+
+        run_editor()
+    else:
+        run_game(controller_mode=args.controller_mode)
