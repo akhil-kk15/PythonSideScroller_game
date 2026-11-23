@@ -354,8 +354,8 @@ class VFXParticle:
             scale = 0.6 + 0.5 * (1.0 - ratio)
             w = max(4, int(self.image.get_width() * scale))
             h = max(4, int(self.image.get_height() * scale))
-            scaled = pygame.transform.smoothscale(self.image, (w, h))
-            scaled.set_alpha(int(255 * ratio))
+            scaled = pygame.transform.smoothscale(self.image, (w, h)).copy()
+            scaled.fill((255, 255, 255, max(0, min(255, int(255 * ratio)))), special_flags=pygame.BLEND_RGBA_MULT)
             surface.blit(scaled, (sx - w // 2, sy - h // 2))
 
 

@@ -12,7 +12,7 @@ from ui import MenuCharacter, create_menus, load_icons
 from story import create_stories
 from highscores import add_highscore, best_score_text, highscore_lines, load_highscores
 from joystick import MODE_AUTO, MODES, Gamepad, configure_sdl_hints
-from titlebar import BAR_HEIGHT, TitleBar, shift_mouse_event
+from titlebar import BAR_HEIGHT, TitleBar, create_opaque_surface, create_window, shift_mouse_event, toggle_fullscreen
 import sounds
 
 SCREEN_WIDTH = 1280
@@ -31,58 +31,72 @@ def draw_hud(
     font_lg: pygame.font.Font,
     gamepad: Gamepad | None = None,
 ) -> None:
-    """Draw the HUD."""
+    """Draw the HUD at native surface resolution for razor-sharp text."""
+    sw, sh = surface.get_size()
+    s = sh / 720.0
+
+    def sc(v: float) -> int:
+        return round(v * s)
+
+    def scale_icon(img: pygame.Surface) -> pygame.Surface:
+        if abs(s - 1.0) < 0.02:
+            return img
+        return pygame.transform.smoothscale(
+            img, (max(1, sc(img.get_width())), max(1, sc(img.get_height())))
+        )
+
     # HUD background.
-    hud_bar = pygame.Surface((SCREEN_WIDTH, 58), pygame.SRCALPHA)
+    bar_h = sc(58)
+    hud_bar = pygame.Surface((sw, bar_h), pygame.SRCALPHA)
     hud_bar.fill((18, 22, 32, 205))
     surface.blit(hud_bar, (0, 0))
-    pygame.draw.line(surface, (75, 90, 120), (0, 58), (SCREEN_WIDTH, 58), 2)
+    pygame.draw.line(surface, (75, 90, 120), (0, bar_h), (sw, bar_h), max(1, sc(2)))
 
     # Hearts.
     for i in range(3):
-        hx = 20 + i * 38
-        hy = 14
+        hx = sc(20 + i * 38)
+        hy = sc(14)
         heart_hp = player.hp - i * 2
         if heart_hp >= 2:
-            surface.blit(assets.ui["heart_full"], (hx, hy))
+            surface.blit(scale_icon(assets.ui["heart_full"]), (hx, hy))
         elif heart_hp == 1:
-            surface.blit(assets.ui["heart_half"], (hx, hy))
+            surface.blit(scale_icon(assets.ui["heart_half"]), (hx, hy))
         else:
-            surface.blit(assets.ui["heart_empty"], (hx, hy))
+            surface.blit(scale_icon(assets.ui["heart_empty"]), (hx, hy))
 
     # Lives.
     lives_txt = font_sm.render(f"x{player.lives}", True, (240, 240, 255))
-    surface.blit(lives_txt, (138, 20))
+    surface.blit(lives_txt, (sc(138), sc(20)))
 
     # Coins and gems.
-    surface.blit(assets.ui["coin_icon"], (195, 14))
+    surface.blit(scale_icon(assets.ui["coin_icon"]), (sc(195), sc(14)))
     coin_txt = font_md.render(f"{player.coins:02d}", True, (255, 220, 75))
-    surface.blit(coin_txt, (226, 16))
+    surface.blit(coin_txt, (sc(226), sc(16)))
 
-    surface.blit(assets.ui["gem_icon"], (285, 13))
+    surface.blit(scale_icon(assets.ui["gem_icon"]), (sc(285), sc(13)))
     gem_txt = font_md.render(f"{player.gems:02d}", True, (110, 215, 255))
-    surface.blit(gem_txt, (316, 16))
+    surface.blit(gem_txt, (sc(316), sc(16)))
 
     # Key status.
-    key_box = pygame.Rect(380, 9, 175, 40)
+    key_box = pygame.Rect(sc(380), sc(9), sc(175), sc(40))
     if player.has_key:
-        pygame.draw.rect(surface, (55, 85, 45), key_box, border_radius=8)
-        pygame.draw.rect(surface, (255, 215, 70), key_box, 2, border_radius=8)
-        surface.blit(assets.ui["key_icon"], (388, 13))
+        pygame.draw.rect(surface, (55, 85, 45), key_box, border_radius=sc(8))
+        pygame.draw.rect(surface, (255, 215, 70), key_box, max(1, sc(2)), border_radius=sc(8))
+        surface.blit(scale_icon(assets.ui["key_icon"]), (sc(388), sc(13)))
         k_txt = font_sm.render("KEY READY!", True, (255, 235, 110))
-        surface.blit(k_txt, (426, 20))
+        surface.blit(k_txt, (sc(426), sc(20)))
     else:
-        pygame.draw.rect(surface, (38, 42, 56), key_box, border_radius=8)
-        pygame.draw.rect(surface, (90, 100, 125), key_box, 1, border_radius=8)
+        pygame.draw.rect(surface, (38, 42, 56), key_box, border_radius=sc(8))
+        pygame.draw.rect(surface, (90, 100, 125), key_box, 1, border_radius=sc(8))
         k_txt = font_sm.render("FIND GOLD KEY", True, (170, 180, 205))
-        surface.blit(k_txt, (402, 20))
+        surface.blit(k_txt, (sc(402), sc(20)))
 
     # Level and score.
     lvl_txt = font_md.render(level.level_name, True, (235, 242, 255))
-    surface.blit(lvl_txt, (585, 16))
+    surface.blit(lvl_txt, (sc(585), sc(16)))
 
     score_txt = font_md.render(f"SCORE: {player.score:05d}", True, (255, 240, 150))
-    surface.blit(score_txt, (SCREEN_WIDTH - 210, 16))
+    surface.blit(score_txt, (sw - score_txt.get_width() - sc(24), sc(16)))
 
     # Controls.
     if gamepad is not None and gamepad.is_connected():
@@ -100,23 +114,23 @@ def draw_hud(
         True,
         (215, 225, 240),
     )
-    ctrl_bg = pygame.Surface((ctrl_txt.get_width() + 16, 26), pygame.SRCALPHA)
+    ctrl_bg = pygame.Surface((ctrl_txt.get_width() + sc(16), sc(26)), pygame.SRCALPHA)
     ctrl_bg.fill((15, 18, 26, 165))
-    surface.blit(ctrl_bg, (10, SCREEN_HEIGHT - 32))
-    surface.blit(ctrl_txt, (18, SCREEN_HEIGHT - 27))
+    surface.blit(ctrl_bg, (sc(10), sh - sc(32)))
+    surface.blit(ctrl_txt, (sc(18), sh - sc(27)))
 
     # Banner notification.
     if level.banner_timer > 0 and level.banner_message:
         b_txt = font_md.render(level.banner_message, True, (255, 235, 120))
-        bw = max(560, b_txt.get_width() + 48)
-        bh = 42
-        bx = (SCREEN_WIDTH - bw) // 2
-        by = 72
+        bw = max(sc(560), b_txt.get_width() + sc(48))
+        bh = sc(42)
+        bx = (sw - bw) // 2
+        by = sc(72)
         banner_surf = pygame.Surface((bw, bh), pygame.SRCALPHA)
         banner_surf.fill((22, 28, 45, 225))
         surface.blit(banner_surf, (bx, by))
-        pygame.draw.rect(surface, (255, 210, 75), (bx, by, bw, bh), 2, border_radius=6)
-        surface.blit(b_txt, (bx + (bw - b_txt.get_width()) // 2, by + 9))
+        pygame.draw.rect(surface, (255, 210, 75), (bx, by, bw, bh), max(1, sc(2)), border_radius=sc(6))
+        surface.blit(b_txt, (bx + (bw - b_txt.get_width()) // 2, by + (bh - b_txt.get_height()) // 2))
 
 
 def handle_level_interactions(
@@ -399,10 +413,10 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
     """Initializes Pygame, slices sprite sheets if needed, and runs the main game loop."""
     configure_sdl_hints(controller_mode)
     pygame.init()
-    window = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT + BAR_HEIGHT), pygame.NOFRAME | pygame.SCALED)
-    screen = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+    window = create_window(SCREEN_WIDTH, SCREEN_HEIGHT + BAR_HEIGHT, fullscreen=True)
+    world_screen = create_opaque_surface((SCREEN_WIDTH, SCREEN_HEIGHT))
     pygame.display.set_caption(WINDOW_TITLE)
-    titlebar = TitleBar(SCREEN_WIDTH, WINDOW_TITLE)
+    titlebar = TitleBar(window.get_width(), WINDOW_TITLE)
     sounds.init()
     clock = pygame.time.Clock()
     gamepad = Gamepad(mode=controller_mode)
@@ -416,10 +430,9 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
         save_dir = os.path.expanduser("~")
     highscore_path = os.path.join(save_dir, "highscores.txt")
 
-    # Load fonts.
-    font_sm = pygame.font.SysFont("dejavusans,arial,sans-serif", 15, bold=True)
-    font_md = pygame.font.SysFont("dejavusans,arial,sans-serif", 20, bold=True)
-    font_lg = pygame.font.SysFont("dejavusans,arial,sans-serif", 42, bold=True)
+    # Fixed 720p world font for in-world tags and titlebar font.
+    world_font_sm = pygame.font.SysFont("dejavusans,arial,sans-serif", 15, bold=True)
+    titlebar_font = pygame.font.SysFont("dejavusans,arial,sans-serif", 15, bold=True)
 
     # Load sprites.
     assets = AssetLibrary(sliced_dir)
@@ -432,19 +445,63 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
     menu_level = Level(1, assets)
     menu_camera_x = 0.0
 
-    icons = load_icons(assets)
-    menus = create_menus((SCREEN_WIDTH, SCREEN_HEIGHT), icons)
+    # Native-resolution viewport surface and UI resources (rebuilt when toggling fullscreen/windowed).
+    screen: pygame.Surface = pygame.Surface((1, 1))
+    font_sm = world_font_sm
+    font_md = world_font_sm
+    font_lg = world_font_sm
+    icons: dict = {}
+    menus: dict = {}
+    stories: dict = {}
+    current_story_key = "intro"
+    current_story = None
+    menu_knight = None
+    menu_slime = None
+    main_panel = pygame.Rect(0, 0, 1, 1)
+    menu_feet_y = 0
+    ui_scale = 1.0
 
-    # Story scenes: before level 1, before level 2 and after the last level.
-    stories = create_stories(assets, player_sprites, (SCREEN_WIDTH, SCREEN_HEIGHT), FEET_PADDING, icons["key"])
-    current_story = stories["intro"]
+    def sync_viewport_ui(force: bool = False) -> None:
+        """Ensure viewport surface, fonts, menus, and story screens match the current window resolution."""
+        nonlocal window, screen, font_sm, font_md, font_lg, icons, menus, stories
+        nonlocal current_story, menu_knight, menu_slime, main_panel, menu_feet_y, ui_scale
+        disp = pygame.display.get_surface()
+        if disp is not None:
+            window = disp
+        vw = max(640, window.get_width())
+        vh = max(360, window.get_height() - BAR_HEIGHT)
+        if not force and screen.get_size() == (vw, vh):
+            return
+        screen = create_opaque_surface((vw, vh))
+        titlebar.set_width(vw)
+        ui_scale = vh / 720.0
+        font_sm = pygame.font.SysFont("dejavusans,arial,sans-serif", max(12, round(15 * ui_scale)), bold=True)
+        font_md = pygame.font.SysFont("dejavusans,arial,sans-serif", max(16, round(20 * ui_scale)), bold=True)
+        font_lg = pygame.font.SysFont("dejavusans,arial,sans-serif", max(28, round(42 * ui_scale)), bold=True)
+
+        prev_selected = {k: m.selected for k, m in menus.items()} if menus else {}
+        prev_lines = {k: list(m.lines) for k, m in menus.items()} if menus else {}
+        prev_story_idx = current_story.index if current_story is not None else 0
+
+        icons = load_icons(assets, scale_factor=ui_scale)
+        menus = create_menus((vw, vh), icons)
+        for k, m in menus.items():
+            if k in prev_selected:
+                m.selected = min(prev_selected[k], len(m.buttons) - 1)
+            if k in prev_lines and len(prev_lines[k]) == len(m.lines):
+                m.lines = prev_lines[k]
+
+        stories = create_stories(assets, player_sprites, (vw, vh), FEET_PADDING, icons["key"])
+        current_story = stories.get(current_story_key, stories["intro"])
+        current_story.index = min(prev_story_idx, len(current_story.pages) - 1)
+
+        menu_knight = MenuCharacter(player_sprites["idle"], 20, 2 * ui_scale, FEET_PADDING)
+        menu_slime = MenuCharacter(assets.enemies["slime"], 18, 2 * ui_scale)
+        main_panel = menus["menu"].panel
+        menu_feet_y = menus["menu"].buttons[-1].rect.bottom
+
+    sync_viewport_ui(force=True)
     story_next_state = "playing"  # state after the story is finished
-
-    # The knight and a slime stand left and right of the main menu buttons.
-    menu_knight = MenuCharacter(player_sprites["idle"], 20, 2, FEET_PADDING)
-    menu_slime = MenuCharacter(assets.enemies["slime"], 18, 2)
-    main_panel = menus["menu"].panel
-    menu_feet_y = menus["menu"].buttons[-1].rect.bottom
     camera_x = 0.0
     # Game states: menu, story, playing, paused, controls, game_over, victory.
     game_state = "menu"
@@ -472,8 +529,8 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
     def apply_menu_action(action: str | None) -> bool:
         """Execute a menu button action. Returns True if game_state changed."""
         nonlocal current_level_num, level, player, level_start_stats, level_skip_used
-        nonlocal camera_x, current_story, story_next_state, game_state
-        nonlocal controls_return_state, running, menu_level
+        nonlocal camera_x, current_story, current_story_key, story_next_state, game_state
+        nonlocal controls_return_state, running, menu_level, window
         if action is None:
             return False
         if action == "level_editor":
@@ -481,6 +538,7 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
 
             sounds.set_music(False)
             run_editor(window=window, screen=screen, titlebar=titlebar, initial_level=1)
+            sync_viewport_ui(force=True)
             assets.reload_custom()
             menu_level = Level(1, assets)
             game_state = open_menu("menu")
@@ -492,6 +550,7 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
             level_skip_used = False
             camera_x = 0.0
             # Show the intro story first, then start playing.
+            current_story_key = "intro"
             current_story = stories["intro"]
             current_story.reset()
             story_next_state = "playing"
@@ -536,12 +595,11 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
                 continue
 
             if titlebar.handle_event(event):
+                sync_viewport_ui()
                 continue
             if event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
-                try:
-                    pygame.display.toggle_fullscreen()
-                except pygame.error:
-                    pass
+                window = toggle_fullscreen()
+                sync_viewport_ui()
                 continue
             if event.type == pygame.KEYDOWN and event.key == pygame.K_m:
                 sounds.toggle_mute()
@@ -665,6 +723,7 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
                     level = load_level(2, assets, player)
                     level_start_stats = get_stats(player)
                     camera_x = 0.0
+                    current_story_key = "level_2"
                     current_story = stories["level_2"]
                     current_story.reset()
                     story_next_state = "playing"
@@ -674,6 +733,7 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
                     show_results(menus["victory"], player, current_level_num, highscore_path,
                                  save=not level_skip_used)
                     # Show the ending story first, then the victory screen.
+                    current_story_key = "ending"
                     current_story = stories["ending"]
                     current_story.reset()
                     story_next_state = "victory"
@@ -696,6 +756,7 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
             camera_x += (target_cam_x - camera_x) * 0.14
 
         # Render.
+        sync_viewport_ui()
         show_menu_background = game_state == "menu" or (
             game_state == "controls" and controls_return_state == "menu"
         )
@@ -704,26 +765,47 @@ def run_game(max_frames: int | None = None, controller_mode: str = MODE_AUTO) ->
         elif show_menu_background:
             # Scroll through level 1 and start again at the end.
             menu_camera_x = (menu_camera_x + 0.8) % (menu_level.width - SCREEN_WIDTH)
-            menu_level.draw(screen, int(menu_camera_x), font_sm)
+            menu_level.draw(world_screen, int(menu_camera_x), world_font_sm)
+            if screen.get_size() == world_screen.get_size():
+                screen.blit(world_screen, (0, 0))
+            else:
+                pygame.transform.smoothscale(world_screen, screen.get_size(), screen)
         else:
             cam_int = int(round(camera_x))
-            level.draw(screen, cam_int, font_sm)
-            player.draw(screen, cam_int)
+            level.draw(world_screen, cam_int, world_font_sm)
+            player.draw(world_screen, cam_int)
             for p in level.particles:
-                p.draw(screen, cam_int, font_sm)
+                if not p.text:
+                    p.draw(world_screen, cam_int, world_font_sm)
+            if screen.get_size() == world_screen.get_size():
+                screen.blit(world_screen, (0, 0))
+            else:
+                pygame.transform.smoothscale(world_screen, screen.get_size(), screen)
+            # Draw floating text particles at native viewport resolution for sharp text.
+            sx_ratio = screen.get_width() / SCREEN_WIDTH
+            sy_ratio = screen.get_height() / SCREEN_HEIGHT
+            for p in level.particles:
+                if p.text:
+                    px = int((p.x - cam_int) * sx_ratio)
+                    py = int(p.y * sy_ratio)
+                    shadow = font_sm.render(p.text, True, (20, 20, 30))
+                    label = font_sm.render(p.text, True, p.color)
+                    screen.blit(shadow, (px + 2, py + 2))
+                    screen.blit(label, (px, py))
             draw_hud(screen, player, level, assets, font_sm, font_md, font_lg, gamepad=gamepad)
 
         if game_state not in ("playing", "story"):
             menu = menus[game_state]
             menu.draw(screen, font_sm, font_md)
             if game_state == "menu":
-                menu_knight.draw(screen, (main_panel.left + 85, menu_feet_y))
-                menu_slime.draw(screen, (main_panel.right - 85, menu_feet_y))
+                offset_x = round(85 * ui_scale)
+                menu_knight.draw(screen, (main_panel.left + offset_x, menu_feet_y))
+                menu_slime.draw(screen, (main_panel.right - offset_x, menu_feet_y))
 
         sounds.set_music(game_state == "menu" or (game_state == "story" and story_next_state == "playing"))
 
         window.blit(screen, (0, BAR_HEIGHT))
-        titlebar.draw(window, font_sm)
+        titlebar.draw(window, titlebar_font)
         pygame.display.flip()
         clock.tick(FPS)
 

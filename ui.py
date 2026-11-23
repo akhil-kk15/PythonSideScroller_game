@@ -37,11 +37,11 @@ def draw_text_with_shadow(surface, font, text, color, midtop):
 class Button:
     # A rectangle with text. When it is clicked, the menu returns its action.
 
-    def __init__(self, text, action, center, icon=None):
+    def __init__(self, text, action, center, icon=None, size=BUTTON_SIZE):
         self.text = text
         self.action = action  # a short string like "start" or "quit"
         self.icon = icon      # small picture on the left side, or None
-        self.rect = pygame.Rect((0, 0), BUTTON_SIZE)
+        self.rect = pygame.Rect((0, 0), size)
         self.rect.center = center
 
     def draw(self, surface, font, selected):
@@ -68,34 +68,40 @@ class Menu:
         # lines:       text shown between the title and the buttons
         # icons:       dict of icon name -> small picture for the buttons
         # back_action: action used when Esc is pressed (None = Esc does nothing)
+        screen_w, screen_h = screen_size
+        self.scale = screen_h / 720.0
         self.title = title
         self.title_color = title_color
-        self.title_size = title_size
+        self.title_size = round(title_size * self.scale)
         self.title_font = None  # created when the menu is drawn the first time
         self.lines = lines or []
         self.back_action = back_action
         self.overlay_alpha = overlay_alpha
         self.selected = 0
+        self.line_spacing = round(LINE_SPACING * self.scale)
         icons = icons or {}
 
         # Work out the height of everything, so the panel sits in the middle.
-        screen_w, screen_h = screen_size
-        title_height = title_size + 28
-        lines_height = len(self.lines) * LINE_SPACING
-        content_height = title_height + lines_height + 30 + len(options) * BUTTON_SPACING
+        button_spacing = round(BUTTON_SPACING * self.scale)
+        button_size = (round(BUTTON_SIZE[0] * self.scale), round(BUTTON_SIZE[1] * self.scale))
+        panel_width = round(PANEL_WIDTH * self.scale)
+        gap = round(30 * self.scale)
+        title_height = self.title_size + round(28 * self.scale)
+        lines_height = len(self.lines) * self.line_spacing
+        content_height = title_height + lines_height + gap + len(options) * button_spacing
         top = (screen_h - content_height) // 2
 
         center_x = screen_w // 2
         self.title_y = top
         self.lines_y = top + title_height
-        y = self.lines_y + lines_height + 30 + BUTTON_SPACING // 2
+        y = self.lines_y + lines_height + gap + button_spacing // 2
         self.buttons = []
         for text, action, icon_name in options:
-            self.buttons.append(Button(text, action, (center_x, y), icons.get(icon_name)))
-            y += BUTTON_SPACING
+            self.buttons.append(Button(text, action, (center_x, y), icons.get(icon_name), size=button_size))
+            y += button_spacing
 
-        self.panel = pygame.Rect(0, 0, PANEL_WIDTH, content_height + 50)
-        self.panel.midtop = (center_x, top - 30)
+        self.panel = pygame.Rect(0, 0, panel_width, content_height + round(50 * self.scale))
+        self.panel.midtop = (center_x, top - gap)
 
     def reset(self):
         # Select the first button again when the menu is opened.
@@ -158,7 +164,7 @@ class Menu:
 
         for index, line in enumerate(self.lines):
             text = font_md.render(line, True, TEXT_COLOR)
-            surface.blit(text, text.get_rect(midtop=(center_x, self.lines_y + index * LINE_SPACING)))
+            surface.blit(text, text.get_rect(midtop=(center_x, self.lines_y + index * self.line_spacing)))
 
         for index, button in enumerate(self.buttons):
             button.draw(surface, font_md, index == self.selected)
@@ -167,7 +173,7 @@ class Menu:
         if self.back_action is not None:
             hint_str += "  |  Esc / (B) = Back"
         hint = font_sm.render(hint_str, True, HINT_COLOR)
-        surface.blit(hint, hint.get_rect(midtop=(center_x, self.panel.bottom + 10)))
+        surface.blit(hint, hint.get_rect(midtop=(center_x, self.panel.bottom + round(10 * self.scale))))
 
 
 class MenuCharacter:
@@ -190,7 +196,7 @@ class MenuCharacter:
         surface.blit(frame, frame.get_rect(midbottom=(x, y + self.feet_padding)))
 
 
-def load_icons(assets):
+def load_icons(assets, scale_factor=1.0):
     # Small pictures for the buttons, taken from the HUD and item sprites.
     pictures = {
         "key": assets.ui["key_icon"],
@@ -200,9 +206,10 @@ def load_icons(assets):
         "coin": assets.ui["coin_icon"],
         "gem": assets.ui["gem_icon"],
     }
+    target_size = round(ICON_SIZE * scale_factor)
     icons = {}
     for name, picture in pictures.items():
-        scale = ICON_SIZE / max(picture.get_size())
+        scale = target_size / max(picture.get_size())
         icons[name] = pygame.transform.smoothscale_by(picture, scale)
     return icons
 

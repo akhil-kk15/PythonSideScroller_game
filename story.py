@@ -14,7 +14,7 @@ import pygame
 
 import sounds
 from ui import Button, MenuCharacter, draw_text_with_shadow, HIGHLIGHT_COLOR, TEXT_COLOR, HINT_COLOR
-from titlebar import BAR_HEIGHT
+from titlebar import BAR_HEIGHT, create_opaque_surface
 
 FEET_Y = 440                     # where the figures stand
 BACKGROUND_COLOR = (14, 16, 26)
@@ -115,7 +115,8 @@ class RunningTrail:
         for number in range(len(self.dust)):
             progress = (time * 1.4 + number / len(self.dust)) % 1
             cloud = self.dust[number].copy()
-            cloud.set_alpha(int(230 * (1 - progress)))
+            alpha = max(0, min(255, int(230 * (1 - progress))))
+            cloud.fill((255, 255, 255, alpha), special_flags=pygame.BLEND_RGBA_MULT)
             surface.blit(cloud, cloud.get_rect(midbottom=(x - progress * 120, y)))
 
 
@@ -132,17 +133,23 @@ def make_background(screen_size):
     # Dark background with a warm light in the middle and a light spot on the floor.
     # It is drawn once and then reused for every page.
     width, height = screen_size
-    background = pygame.Surface(screen_size)
+    s = height / 720.0
+    feet_y = round(FEET_Y * s)
+    background = create_opaque_surface(screen_size)
     background.fill(BACKGROUND_COLOR)
 
     glow = pygame.Surface(screen_size, pygame.SRCALPHA)
-    max_radius = 340
+    max_radius = round(340 * s)
     for radius in range(max_radius, 0, -4):
         # Circles from the outside to the inside. Every smaller circle is a bit less
         # see-through, so the light is strongest in the middle and fades out smoothly.
         alpha = int(45 * (1 - radius / max_radius))
-        pygame.draw.circle(glow, (*GLOW_COLOR, alpha), (width // 2, FEET_Y - 110), radius)
-    pygame.draw.ellipse(glow, (*GLOW_COLOR, 35), (width // 2 - 260, FEET_Y - 18, 520, 36))
+        pygame.draw.circle(glow, (*GLOW_COLOR, alpha), (width // 2, feet_y - round(110 * s)), radius)
+    pygame.draw.ellipse(
+        glow,
+        (*GLOW_COLOR, 35),
+        (width // 2 - round(260 * s), feet_y - round(18 * s), round(520 * s), round(36 * s)),
+    )
     background.blit(glow, (0, 0))
     return background
 
@@ -155,13 +162,22 @@ class StoryScreen:
         self.index = 0
         self.background = background
         width, height = screen_size
-        self.button = Button("Continue", "continue", (width // 2, height - 75), button_icon)
+        self.scale = height / 720.0
+        self.feet_y = round(FEET_Y * self.scale)
+        btn_size = (round(320 * self.scale), round(52 * self.scale))
+        self.button = Button(
+            "Continue",
+            "continue",
+            (width // 2, height - round(75 * self.scale)),
+            button_icon,
+            size=btn_size,
+        )
 
         # Stars: random places, but always the same ones (fixed seed).
         generator = random.Random(7)
         self.stars = []
         for _ in range(70):
-            self.stars.append((generator.randint(0, width), generator.randint(0, FEET_Y - 40),
+            self.stars.append((generator.randint(0, width), generator.randint(0, self.feet_y - round(40 * self.scale)),
                                generator.uniform(0, 6.3)))
 
     def reset(self):
@@ -211,13 +227,13 @@ class StoryScreen:
             figure.draw(surface, position)
 
         if page.title:
-            draw_text_with_shadow(surface, font_lg, page.title, HIGHLIGHT_COLOR, (center_x, 40))
+            draw_text_with_shadow(surface, font_lg, page.title, HIGHLIGHT_COLOR, (center_x, round(40 * self.scale)))
 
-        text_y = FEET_Y + 45
+        text_y = self.feet_y + round(45 * self.scale)
         for line in page.lines:
             text = font_md.render(line, True, TEXT_COLOR)
             surface.blit(text, text.get_rect(midtop=(center_x, text_y)))
-            text_y += 32
+            text_y += round(32 * self.scale)
 
         mouse_x, mouse_y = pygame.mouse.get_pos()
         mouse_on_button = self.button.rect.collidepoint((mouse_x, mouse_y - BAR_HEIGHT))
@@ -227,7 +243,7 @@ class StoryScreen:
             True,
             HINT_COLOR,
         )
-        surface.blit(hint, hint.get_rect(midtop=(center_x, self.button.rect.bottom + 10)))
+        surface.blit(hint, hint.get_rect(midtop=(center_x, self.button.rect.bottom + round(10 * self.scale))))
 
 
 def create_stories(assets, player_sprites, screen_size, feet_padding, button_icon=None):
@@ -236,28 +252,30 @@ def create_stories(assets, player_sprites, screen_size, feet_padding, button_ico
     enemies = assets.enemies
     items = assets.items
     center_x = screen_size[0] // 2
+    s = screen_size[1] / 720.0
+    feet_y = round(FEET_Y * s)
 
     def knight(scale):
-        return MenuCharacter(player_sprites["idle"], 20, scale, feet_padding)
+        return MenuCharacter(player_sprites["idle"], 20, scale * s, feet_padding)
 
     def goblin(name, scale, flip=False):
         # Every goblin stands still and breathes (first picture of its sprites).
-        return MenuCharacter(breathing(enemies[name][0]), 30, scale, flip=flip)
+        return MenuCharacter(breathing(enemies[name][0]), 30, scale * s, flip=flip)
 
     def item(name, frame_time, scale):
-        return FloatingFigure(items[name], frame_time, scale)
+        return FloatingFigure(items[name], frame_time, scale * s)
 
     def crown(pixel_size):
-        return FloatingFigure([make_crown(pixel_size)], 60, 1)
+        return FloatingFigure([make_crown(max(1, round(pixel_size * s)))], 60, 1)
 
     intro = StoryScreen([
         StoryPage([
             "For a hundred years, the Golden Crown kept the kingdom safe and peaceful.",
             "Its light protected every village from the dark creatures beyond the mountains.",
         ], [
-            (crown(10), (center_x, FEET_Y - 60)),
-            (item("coin", 10, 2), (center_x - 190, FEET_Y - 20)),
-            (item("gem", 14, 2), (center_x + 190, FEET_Y - 20)),
+            (crown(10), (center_x, feet_y - round(60 * s))),
+            (item("coin", 10, 2), (center_x - round(190 * s), feet_y - round(20 * s))),
+            (item("gem", 14, 2), (center_x + round(190 * s), feet_y - round(20 * s))),
         ], title="THE STOLEN CROWN"),
         StoryPage([
             "But one dark night, a band of goblins crept into the castle and stole the crown!",
@@ -265,17 +283,17 @@ def create_stories(assets, player_sprites, screen_size, feet_padding, button_ico
         ], [
             # A goblin runs away with the crown under its arm. Goblin and crown hop
             # together, wind lines and dust fly backwards behind them.
-            (RunningTrail([assets.vfx["dust_1"], assets.vfx["dust_2"]]), (center_x - 30, FEET_Y)),
-            (RunningFigure([enemies["goblin_warrior_walk"][2]], 60, 3), (center_x + 50, FEET_Y)),
-            (RunningFigure([make_crown(4)], 60, 1), (center_x + 15, FEET_Y - 70)),
+            (RunningTrail([assets.vfx["dust_1"], assets.vfx["dust_2"]]), (center_x - round(30 * s), feet_y)),
+            (RunningFigure([enemies["goblin_warrior_walk"][2]], 60, 3 * s), (center_x + round(50 * s), feet_y)),
+            (RunningFigure([make_crown(max(1, round(4 * s)))], 60, 1), (center_x + round(15 * s), feet_y - round(70 * s))),
         ]),
         StoryPage([
             "Young knight Aldric swears to bring the crown back home.",
             "First he must cross the Emerald Grasslands and find the Gold Key",
             "that opens the gate to the cave.",
         ], [
-            (knight(3), (center_x - 80, FEET_Y)),
-            (item("key", 25, 2), (center_x + 150, FEET_Y - 100)),
+            (knight(3), (center_x - round(80 * s), feet_y)),
+            (item("key", 25, 2), (center_x + round(150 * s), feet_y - round(100 * s))),
         ]),
     ], screen_size, background, button_icon)
 
@@ -284,10 +302,10 @@ def create_stories(assets, player_sprites, screen_size, feet_padding, button_ico
             "The cave leads Aldric straight into the Goblin Stronghold.",
             "Archers guard the walls, and the Goblin Brute keeps the key to the treasure room.",
         ], [
-            (knight(2), (center_x - 260, FEET_Y)),
-            (goblin("goblin_archer", 2, flip=True), (center_x + 30, FEET_Y)),
-            (goblin("goblin_brute", 2.5, flip=True), (center_x + 250, FEET_Y)),
-            (item("key", 25, 1.5), (center_x + 250, FEET_Y - 230)),
+            (knight(2), (center_x - round(260 * s), feet_y)),
+            (goblin("goblin_archer", 2, flip=True), (center_x + round(30 * s), feet_y)),
+            (goblin("goblin_brute", 2.5, flip=True), (center_x + round(250 * s), feet_y)),
+            (item("key", 25, 1.5), (center_x + round(250 * s), feet_y - round(230 * s))),
         ], title="THE GOBLIN STRONGHOLD"),
     ], screen_size, background, button_icon)
 
@@ -296,10 +314,10 @@ def create_stories(assets, player_sprites, screen_size, feet_padding, button_ico
             "Deep inside the Stronghold, Aldric finds the Golden Crown.",
             "He brings it home, and the whole kingdom celebrates its new hero!",
         ], [
-            (knight(3), (center_x, FEET_Y)),
-            (crown(5), (center_x, FEET_Y - 230)),
-            (item("coin", 10, 2), (center_x - 200, FEET_Y - 30)),
-            (item("gem", 14, 2), (center_x + 200, FEET_Y - 30)),
+            (knight(3), (center_x, feet_y)),
+            (crown(5), (center_x, feet_y - round(230 * s))),
+            (item("coin", 10, 2), (center_x - round(200 * s), feet_y - round(30 * s))),
+            (item("gem", 14, 2), (center_x + round(200 * s), feet_y - round(30 * s))),
         ], title="THE KINGDOM IS SAVED"),
     ], screen_size, background, button_icon)
 

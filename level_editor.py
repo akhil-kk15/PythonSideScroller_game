@@ -24,7 +24,7 @@ from level import (
     get_levels_dir,
 )
 from player import Player, load_player_sprites
-from titlebar import BAR_HEIGHT, TitleBar, shift_mouse_event
+from titlebar import BAR_HEIGHT, TitleBar, create_opaque_surface, create_window, shift_mouse_event, toggle_fullscreen
 
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
@@ -47,6 +47,20 @@ MINIMAP_H = 28
 SLICER_VIEW_W = 860
 SLICER_PANEL_X = SLICER_VIEW_W
 SLICER_PANEL_W = SCREEN_WIDTH - SLICER_VIEW_W
+
+
+def sync_editor_layout(vw: int, vh: int) -> None:
+    """Update layout dimensions to match the native viewport size."""
+    global SCREEN_WIDTH, SCREEN_HEIGHT, CANVAS_W, CANVAS_H, MINIMAP_Y
+    global SLICER_VIEW_W, SLICER_PANEL_X, SLICER_PANEL_W
+    SCREEN_WIDTH = max(1280, vw)
+    SCREEN_HEIGHT = max(720, vh)
+    CANVAS_W = SCREEN_WIDTH - LEFT_PANEL_W - RIGHT_PANEL_W
+    CANVAS_H = SCREEN_HEIGHT - TOPBAR_H - STATUSBAR_H - MINIMAP_H
+    MINIMAP_Y = CANVAS_Y + CANVAS_H
+    SLICER_PANEL_W = 420
+    SLICER_VIEW_W = SCREEN_WIDTH - SLICER_PANEL_W
+    SLICER_PANEL_X = SLICER_VIEW_W
 
 # Colors matching the game's dark medieval HUD palette.
 BG_DARK = (18, 22, 32)
@@ -542,7 +556,7 @@ class LevelEditorApp:
             sx = int(self.cam_x + CANVAS_W // 2)
             sy = 200
         self.playtest_player = Player(sx, sy, self.player_sprites)
-        self.playtest_cam_x = max(0.0, min(float(self.playtest_level.width - SCREEN_WIDTH), sx - SCREEN_WIDTH * 0.38))
+        self.playtest_cam_x = max(0.0, min(float(self.playtest_level.width - 1280), sx - 1280 * 0.38))
         self.playtest_step_timer = 0
         self.mode = "playtest"
         self._set_status("Playtest started! Press Esc or F5 to return to the Level Editor.")
@@ -1793,8 +1807,8 @@ class LevelEditorApp:
             level.banner_message = "RESPAWNED AT SPAWN POINT (Press Esc to return to Editor)"
             level.banner_timer = 120
 
-        target_cam_x = player.rect.centerx - SCREEN_WIDTH * 0.38
-        target_cam_x = max(0.0, min(float(level.width - SCREEN_WIDTH), target_cam_x))
+        target_cam_x = player.rect.centerx - 1280 * 0.38
+        target_cam_x = max(0.0, min(float(level.width - 1280), target_cam_x))
         self.playtest_cam_x += (target_cam_x - self.playtest_cam_x) * 0.14
 
     # ------------------------------------------------------------------
@@ -1888,7 +1902,7 @@ class LevelEditorApp:
         # 1. Background parallax preview.
         bg = self.assets.backgrounds.get(self.background_id) or self.assets.backgrounds.get(1)
         if bg is not None:
-            temp_bg = pygame.Surface((CANVAS_W, self.level_height))
+            temp_bg = create_opaque_surface((CANVAS_W, self.level_height))
             bg.draw(temp_bg, int(self.cam_x))
             surface.blit(temp_bg, (CANVAS_X, int(CANVAS_Y - self.cam_y)))
         else:
@@ -2272,7 +2286,7 @@ class LevelEditorApp:
         )
         if surf is not None:
             ghost = surf.copy()
-            ghost.set_alpha(190)
+            ghost.fill((255, 255, 255, 190), special_flags=pygame.BLEND_RGBA_MULT)
             surface.blit(ghost, (sx, sy))
         tcol = TYPE_COLORS.get(item.obj_type, HIGHLIGHT_COL)
         pygame.draw.rect(surface, tcol, (sx, sy, item.default_w, item.default_h), 2)
@@ -2448,10 +2462,15 @@ class LevelEditorApp:
         if self.playtest_level is None or self.playtest_player is None:
             return
         cam_int = int(round(self.playtest_cam_x))
-        self.playtest_level.draw(surface, cam_int, self.font_sm)
-        self.playtest_player.draw(surface, cam_int)
+        world_surf = create_opaque_surface((1280, 720))
+        self.playtest_level.draw(world_surf, cam_int, self.font_sm)
+        self.playtest_player.draw(world_surf, cam_int)
         for p in self.playtest_level.particles:
-            p.draw(surface, cam_int, self.font_sm)
+            p.draw(world_surf, cam_int, self.font_sm)
+        if surface.get_size() == (1280, 720):
+            surface.blit(world_surf, (0, 0))
+        else:
+            pygame.transform.smoothscale(world_surf, surface.get_size(), surface)
         draw_hud(
             surface,
             self.playtest_player,
@@ -2481,16 +2500,29 @@ def run_editor(
     standalone = window is None
     if standalone:
         pygame.init()
-        window = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT + BAR_HEIGHT), pygame.NOFRAME | pygame.SCALED)
-        screen = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        window = create_window(1280, 720 + BAR_HEIGHT, fullscreen=True)
+        screen = create_opaque_surface((window.get_width(), window.get_height() - BAR_HEIGHT))
         pygame.display.set_caption(EDITOR_TITLE)
-        titlebar = TitleBar(SCREEN_WIDTH, EDITOR_TITLE)
+        titlebar = TitleBar(window.get_width(), EDITOR_TITLE)
         sounds.init()
 
     assert window is not None and screen is not None and titlebar is not None
     prev_title = titlebar.title
     titlebar.title = EDITOR_TITLE
 
+    def sync_editor_surface() -> None:
+        nonlocal window, screen
+        disp = pygame.display.get_surface()
+        if disp is not None:
+            window = disp
+        vw = max(1280, window.get_width())
+        vh = max(720, window.get_height() - BAR_HEIGHT)
+        sync_editor_layout(vw, vh)
+        if screen.get_size() != (vw, vh):
+            screen = create_opaque_surface((vw, vh))
+        titlebar.set_width(window.get_width())
+
+    sync_editor_surface()
     base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     assets_dir = os.path.join(base_dir, "assets")
     app = LevelEditorApp(assets_dir=assets_dir, initial_level=initial_level)
@@ -2507,12 +2539,11 @@ def run_editor(
                     pygame.event.post(pygame.event.Event(pygame.QUIT))
                 break
             if titlebar.handle_event(event):
+                sync_editor_surface()
                 continue
             if event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
-                try:
-                    pygame.display.toggle_fullscreen()
-                except pygame.error:
-                    pass
+                window = toggle_fullscreen()
+                sync_editor_surface()
                 continue
             shift_mouse_event(event)
             result = app.handle_event(event)
@@ -2520,6 +2551,7 @@ def run_editor(
                 running = False
                 break
 
+        sync_editor_surface()
         app.update()
         app.draw(screen)
         window.blit(screen, (0, BAR_HEIGHT))

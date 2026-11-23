@@ -63,6 +63,7 @@ class Player:
         self.gems = 0
         self.has_key = False
         self.invuln_timer = 0
+        self.knockback_timer = 0
         self.dead = False
 
         # Animations. The number is how many ticks each frame is shown.
@@ -97,6 +98,7 @@ class Player:
         self.attack_timer = 0
         self.hp = self.max_hp
         self.invuln_timer = 60
+        self.knockback_timer = 0
         self.dead = False
 
     def trigger_jump(self) -> None:
@@ -176,10 +178,16 @@ class Player:
         self.hp = max(0, self.hp - amount)
         sounds.play("hurt")
         self.invuln_timer = 65
+        self.knockback_timer = 16
+        self.ladder_cooldown = 16
         self.on_ladder = False
-        self.vel_y = -6.5
-        if knockback_dir != 0:
-            self.vel_x = 5.0 * knockback_dir
+        self.active_ladder = None
+        self.on_ground = False
+        self.coyote_timer = 0
+        self.jump_buffer_timer = 0
+        self.vel_y = -6.8
+        kb_dir = knockback_dir if knockback_dir != 0 else (-1 if self.facing_right else 1)
+        self.vel_x = 7.8 * kb_dir
         if self.hp <= 0:
             self.dead = True
         return True
@@ -207,6 +215,8 @@ class Player:
 
         if self.invuln_timer > 0:
             self.invuln_timer -= 1
+        if self.knockback_timer > 0:
+            self.knockback_timer -= 1
         if self.attack_cooldown > 0:
             self.attack_cooldown -= 1
         if self.ladder_cooldown > 0:
@@ -263,7 +273,10 @@ class Player:
                     self.rect.centerx = target_ladder.centerx + (max_offset if dx > 0 else -max_offset)
 
         # Update horizontal velocity.
-        if self.on_ladder and self.active_ladder is not None and (move_up or move_down):
+        if self.knockback_timer > 0:
+            # Maintain knockback velocity so the player bounces back ~1 block even while holding movement keys.
+            self.vel_x *= 0.92
+        elif self.on_ladder and self.active_ladder is not None and (move_up or move_down):
             # Keep aligned on the ladder rungs while actively climbing up/down so holding
             # A/D + W smoothly climbs to the top platform and then runs onto it without
             # accidentally sliding off mid-climb.
@@ -339,7 +352,7 @@ class Player:
             or keys[pygame.K_UP]
             or bool(gamepad and gamepad.jump_held)
         )
-        if not jump_held and self.vel_y < -4.5 and not self.on_ladder:
+        if not jump_held and self.vel_y < -4.5 and not self.on_ladder and self.knockback_timer == 0:
             self.vel_y *= 0.62
 
         # Apply ladder movement or gravity.
